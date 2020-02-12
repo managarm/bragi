@@ -1,0 +1,30 @@
+enum enum1 {
+	foo = 1,
+	bar,
+	baz
+}
+
+message msg1 1 {
+head(256):
+	byte[64] bab;
+	byte[64] bib;
+
+tail:
+	optional tag(13) byte[3] bub = [1,2,3];
+	optional byte[] beb = [7];
+	string bob = "test";
+}
+
+message msg2 2 {
+head(128):
+	optional byte[64] bab;
+	int32 bib = 2345;
+
+tail:
+	byte[4] bub = [1,2,3];
+	byte beb = 7;
+	byte bhb = 7;
+	string bob = "test";
+}
+
+message msg3 3 {head(13): byte foo = 3;}
