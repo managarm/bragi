@@ -28,3 +28,14 @@ tail:
 }
 
 message msg3 3 {head(13): byte foo = 3;}
+
+message msg4 4 {
+head(64):
+	uint64 foo;
+	byte[16] arr;
+tail:
+	int32 baz;
+	uint32[] bif;
+}
+
+

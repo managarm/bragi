@@ -2,6 +2,9 @@ from lark import Lark, Transformer, v_args
 from lark.exceptions import *
 import sys
 
+from cpp_generator import CodeGenerator
+from tokens import *
+
 grammar = '''
 start: (message | enum)+
 
@@ -35,101 +38,6 @@ NAME: CNAME
 %import common.WS
 %ignore WS
 '''
-
-class Message:
-    def __init__(self, line, column, name, id, body):
-        self.line = line
-        self.column = column
-        self.name = name
-        self.id = id
-        self.body = body
-
-    def __repr__(self):
-        return 'Message(' + self.name + ', ' + self.id + ') { ' + str(self.body) + ' }'
-
-class HeadSection:
-    def __init__(self, line, column, size, members):
-        self.line = line
-        self.column = column
-        self.size = size
-        self.members = members
-
-    def __repr__(self):
-        return 'HeadSection(' + self.size + ') { ' + str(self.members) + ' }'
-
-class TailSection:
-    def __init__(self, line, column, members):
-        self.line = line
-        self.column = column
-        self.members = members
-
-    def __repr__(self):
-        return 'TailSection() { ' + str(self.members) + " }"
-
-class MessageMember:
-    def __init__(self, line, column, attributes, type, name, default_value):
-        self.line = line
-        self.column = column
-        self.attributes = attributes
-        self.type = type
-        self.name = name
-        self.default_value = default_value
-
-    def __repr__(self):
-        return (('(' + str(self.attributes) + ') ') if len(self.attributes) > 0 else '') + str(self.type) + ' ' + self.name + ((' = ' + str(self.default_value)) if self.default_value is not None else '')
-
-class Type:
-    def __init__(self, line, column, name):
-        self.line = line
-        self.column = column
-
-        parts = name.split('[', 1)
-        self.is_array = len(parts) > 1
-        self.base_type = parts[0]
-        self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
-
-    def __repr__(self):
-        return self.base_type + (('[' + str(self.array_size) + ']') if self.is_array else '')
-
-class Attribute:
-    def __init__(self, line, column, name, values):
-        self.line = line
-        self.column = column
-        self.name = name
-        self.values = values
-
-    def __repr__(self):
-        return self.name + (('( ' + str(self.values) + ' )') if len(self.values) > 0 else '')
-
-class Enum:
-    def __init__(self, line, column, name, members):
-        self.line = line
-        self.column = column
-        self.name = name
-        self.members = members
-
-    def __repr__(self):
-        return 'Enum(' + self.name + ') { ' + str(self.members) + ' }'
-
-class EnumMember:
-    def __init__(self, line, column, name, value = None):
-        self.line = line
-        self.column = column
-        self.name = name
-        self.value = value
-
-    def __repr__(self):
-        return self.name + ((' = ' + str(self.value)) if self.value is not None else '')
-
-class ConstantValue:
-    def __init__(self, line, column, type, value):
-        self.line = line
-        self.column = column
-        self.value = value
-        self.type = type
-
-    def __repr__(self):
-        return str(self.value)
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -194,7 +102,7 @@ def report_error(filename, line_str, line_no, column_no, message, message2):
 
     n_spaces = ((column_no + n_tabs * 7) - 1)
 
-    print('In {} at {}:{}: error: {}'.format(filename, line_no, column_no, message))
+    print('In {}:{}:{}: error: {}'.format(filename, line_no, column_no, message))
     print('  {} | {}'.format(line_no_str, line_str))
     print('  {} | {}^'.format(len(line_no_str) * ' ', n_spaces * ' '))
     if len(message2) > 0:
@@ -293,15 +201,6 @@ def verify_enum(filename, lines, enum):
         else:
             max_val = m.value.value
 
-# most of this function is a hack
-def base_type_size(t):
-    if t.count('int') > 0:
-        return int(t.split('int', 1)[1]) / 8
-    elif t == 'byte':
-        return 1
-    else:
-        return -1
-
 # returns size of member in bytes
 def verify_member(filename, lines, m):
     if type(m) is not MessageMember:
@@ -345,8 +244,18 @@ def verify_member(filename, lines, m):
     return member_size
 
 def verify_message(filename, lines, msg):
+    has_head = False
+    has_tail = False
     for s in msg.body:
         if type(s) is HeadSection:
+            if has_head:
+                report_error(filename, lines[s.line - 1],
+                    s.line, s.column,
+                    'multiple head sections are not allowed', '')
+
+            has_head = True
+            msg.head = s
+
             memb_size_total = 0
             for m in s.members:
                 size = verify_member(filename, lines, m)
@@ -360,11 +269,19 @@ def verify_message(filename, lines, msg):
                             attr.line, attr.column,
                             'tagged member not allowed in the head section', '')
                 memb_size_total += size
-            if memb_size_total > s.size:
+            if memb_size_total > (s.size - 8):
                 report_error(filename, lines[s.line - 1],
                         s.line, s.column,
-                        'head section is {} bytes too short to fit all members'.format(memb_size_total - s.size), '')
+                        'head section is {} bytes too short to fit all members'.format(memb_size_total - s.size + 8), 'note: the head has a hidden uint64 member for the message id')
         elif type(s) is TailSection:
+            if has_tail:
+                report_error(filename, lines[s.line - 1],
+                    s.line, s.column,
+                    'multiple tail sections are not allowed', '')
+
+            has_tail = True
+            msg.tail = s
+
             for m in s.members:
                 verify_member(filename, lines, m)
         else:
@@ -392,4 +309,7 @@ with open(source, "r") as f:
     code = f.read()
     idl = parse_and_transform(source, code)
     verify_idl(source, code, idl)
-    print('Input verified correctly. TODO: Compile it');
+
+    generator = CodeGenerator(stdlib = 'libc++')
+    for i in idl:
+        print(generator.generate(i))
