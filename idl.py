@@ -225,10 +225,7 @@ class CompilationUnit:
                         m.type.array_size, len(m.default_value.value)),
                     'Was expecting an at most {} element array here'.format(m.type.array_size))
 
-        member_size = base_type_size(m.type.base_type)
-
-        if m.type.is_array and m.type.array_size != -1:
-            member_size *= m.type.array_size
+        member_size = fixed_type_size(m.type)
 
         return member_size
 
@@ -237,7 +234,7 @@ class CompilationUnit:
             memb_size_total = 0
             for m in msg.head.members:
                 size = self.verify_member(m)
-                if size < 0:
+                if size is None:
                     self.report_message(m, 'error',
                             'dynamically sized member not allowed in head section', '')
                 for attr in m.attributes:

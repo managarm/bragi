@@ -104,13 +104,23 @@ class EofToken:
         self.line = line
         self.column = column
 
-# most of this function is a hack
-def base_type_size(t):
-    if t.count('int') > 0:
-        return int(t.split('int', 1)[1]) / 8
-    elif t == 'byte':
-        return 1
-    else:
-        return -1
+def fixed_type_size(t):
+    size = None
 
+    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8':
+        size = 1
+    elif t.base_type == 'int16' or t.base_type == 'uint16':
+        size = 2
+    elif t.base_type == 'int32' or t.base_type == 'uint32':
+        size = 4
+    elif t.base_type == 'int64' or t.base_type == 'uint64':
+        size = 8
+
+    if t.is_array:
+        if t.array_size > 0:
+            size *= t.array_size
+        else:
+            size = None
+
+    return size
 
