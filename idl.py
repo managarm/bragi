@@ -95,21 +95,6 @@ class IdlTransformer(Transformer):
         return ConstantValue(meta.line, meta.column, 'array', items)
 
 
-def report_error(filename, line_str, line_no, column_no, message, message2):
-    n_tabs = line_str.count('\t')
-    line_str = line_str.replace('\t', '        ')
-    line_no_str = str(line_no)
-
-    n_spaces = ((column_no + n_tabs * 7) - 1)
-
-    print('In {}:{}:{}: error: {}'.format(filename, line_no, column_no, message))
-    print('  {} | {}'.format(line_no_str, line_str))
-    print('  {} | {}^'.format(len(line_no_str) * ' ', n_spaces * ' '))
-    if len(message2) > 0:
-        print('{}{}'.format((len(line_no_str) + 5 + n_spaces) * ' ', message2))
-
-    sys.exit(1)
-
 def token_name_to_human_readable(token):
     if token == 'NAME':
         return 'a name'
@@ -153,163 +138,138 @@ def expected_to_human_readable(expected):
             [token_name_to_human_readable(i if type(i) is str else i.name)
                 for i in set(expected)])
 
-def parse_and_transform(filename, code):
-    parser = Lark(grammar, propagate_positions = True, parser = 'earley')
-    lines = code.split('\n')
-    parsed = None
+source = 'sample.idl'
 
-    try:
-        parsed = parser.parse(code)
-    except UnexpectedToken as e:
-        report_error(filename, lines[e.line - 1],
-                e.line, e.column,
-                'unexpected token \'{}\''.format(e.token),
-                'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
-    except UnexpectedCharacters as e:
-        report_error(filename, lines[e.line - 1],
-                e.line, e.column,
-                'unexpected character \'{}\''.format(lines[e.line - 1][e.column - 1]),
-                'Was expecting {} here'.format(expected_to_human_readable(e.allowed)))
-    except UnexpectedEOF as e:
-        report_error(filename, lines[-2],
-                len(lines) - 1, len(lines[-2]) + 1, 
-                'unexpected end of file', 
-                'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
+class CompilationUnit:
+    def __init__(self, filename, source):
+        self.filename = filename
+        self.source = source
+        self.lines = source.split('\n')
+        self.tokens = None
+        self.eof = EofToken(len(self.lines) - 1, len(self.lines[-2]) + 1)
 
-    return IdlTransformer().transform(parsed)
+    def report_message(self, token, mesg_type, mesg1, mesg2, fatal = True):
+        line = self.lines[token.line - 1]
 
-def verify_enum(filename, lines, enum):
-    max_val = 0
-    for m in enum.members:
-        if type(m) is not EnumMember:
-            report_error(filename, lines[m.line - 1],
-                m.line, m.column,
-                'unexpected token inside of an enum', '')
-        if m.value is not None and m.value.type != 'number':
-            report_error(filename, lines[m.value.line - 1],
-                m.value.line, m.value.column,
-                'enum value must be a number', '')
+        n_tabs = line.count('\t')
+        line = line.replace('\t', '        ')
+        line_number = str(token.line)
+        line_no_len = len(line_number)
 
-        # XXX: remove if we want to allow for this
-        if m.value is not None and m.value.value < max_val:
-            report_error(filename, lines[m.value.line - 1],
-                m.value.line, m.value.column,
-                'enum value must not go backwards', '')
+        n_spaces = len(line_number) + ((token.column + n_tabs * 7) - 1) + 5
+        spaces = n_spaces * ' '
 
-        if m.value is None:
-            max_val += 1
-        else:
-            max_val = m.value.value
+        print(f'{self.filename}:{token.line}:{token.column}: {mesg_type}: {mesg1}')
+        print(f'  {line_number} | {line}')
+        print(f'{spaces}^')
 
-# returns size of member in bytes
-def verify_member(filename, lines, m):
-    if type(m) is not MessageMember:
-        report_error(filename, lines[m.line - 1],
-            m.line, m.column,
-            'unexpected token inside of an message section', '')
+        if len(mesg2) > 0:
+            print(f'{spaces}{mesg2}')
 
-    if m.default_value is not None:
-        # TODO: allow this?
-        if m.type.is_array and m.type.base_type == 'string':
-            report_error(filename, lines[m.type.line - 1],
-                m.type.line, m.type.column,
-                'arrays of strings are not allowed', '')
+        if fatal:
+            sys.exit(1)
 
-        if m.default_value.type == 'array' and not m.type.is_array:
-            report_error(filename, lines[m.default_value.line - 1],
-                m.default_value.line, m.default_value.column,
-                'default value of a non-array member cannot be an array', 
-                'Was expecting a {} here'.format(m.type))
+    def process(self):
+        parser = Lark(grammar, propagate_positions = True, parser = 'earley')
+        lines = code.split('\n')
+        parsed = None
 
-        if m.type.is_array and m.default_value.type != 'array':
-            report_error(filename, lines[m.default_value.line - 1],
-                m.default_value.line, m.default_value.column,
-                'default value of an array member must be an array',
-                'Was expecting an array here')
+        try:
+            parsed = parser.parse(code)
+        except UnexpectedToken as e:
+            self.report_message(e, 'error',
+                    'unexpected token \'{}\''.format(e.token),
+                    'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
+        except UnexpectedCharacters as e:
+            self.report_message(e, 'error',
+                    'unexpected character \'{}\''.format(lines[e.line - 1][e.column - 1]),
+                    'Was expecting {} here'.format(expected_to_human_readable(e.allowed)))
+        except UnexpectedEOF as e:
+            self.report_message(eof, 'error',
+                    'unexpected end of file', 
+                    'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
 
-        # TODO: check type mismatch
+        self.tokens = IdlTransformer().transform(parsed)
 
-        if m.type.is_array and m.type.array_size != -1 and m.type.array_size < len(m.default_value.value):
-            report_error(filename, lines[m.default_value.line - 1],
-                m.default_value.line, m.default_value.column,
-                'expected array with at most {} elements, but array with {} was given'.format(
-                    m.type.array_size, len(m.default_value.value)),
-                'Was expecting an at most {} element array here'.format(m.type.array_size))
+    def verify_enum(self, enum):
+        for m in enum.members:
+            if type(m) is not EnumMember:
+                self.report_message(m, 'error',
+                    'unexpected token inside of an enum', '')
+            if m.value is not None and m.value.type != 'number':
+                self.report_message(m, 'error', 
+                    'enum value must be a number', '')
 
-    member_size = base_type_size(m.type.base_type)
+    # returns size of member in bytes
+    def verify_member(self, m):
+        if type(m) is not MessageMember:
+            self.report_message(m, 'error',
+                'unexpected token inside of an message section', '')
 
-    if m.type.is_array and m.type.array_size != -1:
-        member_size *= m.type.array_size
+        if m.default_value is not None:
+            if m.default_value.type == 'array' and not m.type.is_array:
+                self.report_message(m.default_value, 'error',
+                    'default value of a non-array member cannot be an array', 
+                    'Was expecting a {} here'.format(m.type))
 
-    return member_size
+            if m.type.is_array and m.default_value.type != 'array':
+                self.report_message(m.default_value, 'error',
+                    'default value of an array member must be an array',
+                    'Was expecting an array here')
 
-def verify_message(filename, lines, msg):
-    has_head = False
-    has_tail = False
-    for s in msg.body:
-        if type(s) is HeadSection:
-            if has_head:
-                report_error(filename, lines[s.line - 1],
-                    s.line, s.column,
-                    'multiple head sections are not allowed', '')
+            # TODO: check type mismatch
 
-            has_head = True
-            msg.head = s
+            if m.type.is_array and m.type.array_size != -1 and m.type.array_size < len(m.default_value.value):
+                self.report_message(m.default_value, 'error',
+                    'expected array with at most {} elements, but array with {} was given'.format(
+                        m.type.array_size, len(m.default_value.value)),
+                    'Was expecting an at most {} element array here'.format(m.type.array_size))
 
+        member_size = base_type_size(m.type.base_type)
+
+        if m.type.is_array and m.type.array_size != -1:
+            member_size *= m.type.array_size
+
+        return member_size
+
+    def verify_message(self, msg):
+        if msg.head is not None:
             memb_size_total = 0
-            for m in s.members:
-                size = verify_member(filename, lines, m)
+            for m in msg.head.members:
+                size = self.verify_member(m)
                 if size < 0:
-                    report_error(filename, lines[m.line - 1],
-                            m.line, m.column,
+                    self.report_message(m, 'error',
                             'dynamically sized member not allowed in head section', '')
                 for attr in m.attributes:
                     if attr.name == 'tag':
-                        report_error(filename, lines[attr.line - 1],
-                            attr.line, attr.column,
+                        self.report_message(attr, 'error',
                             'tagged member not allowed in the head section', '')
                 memb_size_total += size
-            if memb_size_total > (s.size - 8):
-                report_error(filename, lines[s.line - 1],
-                        s.line, s.column,
-                        'head section is {} bytes too short to fit all members'.format(memb_size_total - s.size + 8), 'note: the head has a hidden uint64 member for the message id')
-        elif type(s) is TailSection:
-            if has_tail:
-                report_error(filename, lines[s.line - 1],
-                    s.line, s.column,
-                    'multiple tail sections are not allowed', '')
+            if memb_size_total > (msg.head.size - 8):
+                self.report_message(s, 'error',
+                        'head section is {} bytes too short to fit all members'.format(memb_size_total - msg.head.size + 8),
+                        'note: the head has a hidden uint64 member for the message id')
+        if msg.tail is not None:
+            for m in msg.tail.members:
+                self.verify_member(m)
 
-            has_tail = True
-            msg.tail = s
+    def verify(self):
+        for i in self.tokens:
+            if type(i) is Enum:
+                self.verify_enum(i)
+            elif type(i) is Message:
+                self.verify_message(i)
+            else:
+                self.report_message(i, 'error',
+                        'unexpected token in top level', '')
 
-            for m in s.members:
-                verify_member(filename, lines, m)
-        else:
-            report_error(filename, lines[s.line - 1],
-                s.line, s.column,
-                'unexpected token in message body',
-                'Was expecting {} here'.format(expected_to_human_readable(['HEAD', 'TAIL'])))
-
-def verify_idl(filename, code, idl):
-    lines = code.split('\n')
-
-    for i in idl:
-        if type(i) is Enum:
-            verify_enum(filename, lines, i)
-        elif type(i) is Message:
-            verify_message(filename, lines, i)
-        else:
-            report_error(filename, lines[i.line - 1],
-                    i.line, i.column,
-                    'unexpected token in top level', '')
-
-source = 'sample.idl'
 
 with open(source, "r") as f:
     code = f.read()
-    idl = parse_and_transform(source, code)
-    verify_idl(source, code, idl)
+    unit = CompilationUnit(source, code)
+    unit.process()
+    unit.verify()
 
     generator = CodeGenerator(stdlib = 'libc++')
-    for i in idl:
+    for i in unit.tokens:
         print(generator.generate(i))
