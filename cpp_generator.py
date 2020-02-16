@@ -94,7 +94,7 @@ class CodeGenerator:
 
     def generate_encoder(self, message):
         out = '\tbool serialize_to_array(void *buf, size_t size) {\n'
-        out += '\t\tbragi_internals::writer wr{static_cast<uint8_t *>(buf), size};\n'
+        out += '\t\tbragi::internals::writer wr{static_cast<uint8_t *>(buf), size};\n'
         out += '\t\tif (size < head_size) return false;\n'
 
         out += '\t\twr.serialize(0, message_id);\n'
@@ -128,7 +128,7 @@ class CodeGenerator:
 
     def generate_decoder(self, message):
         out = '\tbool deserialize_from_array(void *buf, size_t size) {\n'
-        out += '\t\tbragi_internals::reader rd{static_cast<uint8_t *>(buf), size};\n'
+        out += '\t\tbragi::internals::reader rd{static_cast<uint8_t *>(buf), size};\n'
         out += '\t\tif (size < head_size) return false;\n'
 
         out += '\t\tuint64_t id = rd.deserialize<uint64_t>(0);\n'
