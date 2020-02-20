@@ -95,7 +95,7 @@ class CodeGenerator:
     def generate_encoder(self, message):
         out = '\tbool serialize_to_array(void *buf, size_t size) {\n'
         out += '\t\tbragi::internals::writer wr{static_cast<uint8_t *>(buf), size};\n'
-        out += '\t\tif (size < head_size) return false;\n'
+        out += '\t\tif (size < head_size)\n\t\t\treturn false;\n'
 
         out += '\t\twr.serialize(0, message_id);\n'
 
@@ -114,13 +114,39 @@ class CodeGenerator:
             pass
 
         try:
+            out += '\t\tsize_t i = {}; // Index into tail\n'.format(message.head.size);
             for m in message.tail.members:
-                if m.type.is_array:
-                    out += '\t\twr.serialize({}, {}, {});\n'.format(i, 'm_' + m.name, m.type.array_size)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
+                tag_present = False
+                tag = 0
+                optional = False
+                for attr in m.attributes:
+                    if attr.name == 'tag':
+                        tag_present = True
+                        tag = attr.values[0]
+                    elif attr.name == 'optional':
+                        optional = True
+
+                assert tag_present # Implement untagged fields in tail later
+                
+                if optional:
+                    out += '\t\tif ({}) {{\n'.format('p_' + m.name)
                 else:
-                    out += '\t\twr.serialize({}, {});\n'.format(i, 'm_' + m.name)
-                    i += int(base_type_size(m.type.base_type))
+                    out += '\t\tassert({});\n'.format('p_' + m.name)
+
+                if tag_present:
+                    if optional:
+                        out += '\t' # Keep outputted code looking nice
+                    out += '\t\ti += wr.serialize(i, {});\n'.format(f'varint{{{tag}}}')
+
+                if optional:
+                        out += '\t' # Keep outputted code looking nice
+                if m.type.is_array:
+                    out += '\t\ti += wr.serialize(i, {}, {});\n'.format('m_' + m.name, m.type.array_size)
+                else:
+                    out += '\t\ti += wr.serialize(i, {});\n'.format('m_' + m.name)
+                
+                if optional:
+                    out += '\t\t}}\n'.format()
         except:
             pass
 
@@ -129,10 +155,10 @@ class CodeGenerator:
     def generate_decoder(self, message):
         out = '\tbool deserialize_from_array(void *buf, size_t size) {\n'
         out += '\t\tbragi::internals::reader rd{static_cast<uint8_t *>(buf), size};\n'
-        out += '\t\tif (size < head_size) return false;\n'
+        out += '\t\tif (size < head_size)\n\t\t\treturn false;\n'
 
         out += '\t\tuint64_t id = rd.deserialize<uint64_t>(0);\n'
-        out += '\t\tif(id != message_id) return false;\n'
+        out += '\t\tif(id != message_id)\n\t\t\treturn false;\n'
 
         i = 8
         try:
@@ -140,28 +166,55 @@ class CodeGenerator:
                 if m.type.is_array:
                     out += '\t\t{} = rd.deserialize<{}>({}, {});\n'.format('m_' + m.name, self.generate_type(m.type), i, m.type.array_size)
                     out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
+                    i += int(fixed_type_size(m.type))
                 else:
                     out += '\t\t{} = rd.deserialize<{}>({});\n'.format('m_' + m.name, self.generate_type(m.type), i)
                     out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
+                    i += int(fixed_type_size(m.type))
             i = message.head.size
         except:
             pass
 
         try:
+            out += '\t\tsize_t i = {}; // Index into tail\n'.format(message.head.size);
+            out += '\t\twhile (i < size) {\n'
+            out += '\t\t\tsize_t varint_size = 0;\n'
+            out += '\t\t\tuint64_t tag = rd.deserialize<varint>(i, varint_size);\n'
+            out += '\t\t\ti += varint_size;\n'
+            out += '\t\t\tswitch (tag) {\n'
             for m in message.tail.members:
-                if m.type.is_array and m.type.array_size > 0:
-                    out += '\t\t{} = rd.deserialize<{}>({}, {});\n'.format('m_' + m.name, self.generate_type(m.type), i, m.type.array_size)
-                    out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
-                elif m.base_type != 'string' and m.type.array_size > 0:
-                    out += '\t\t{} = rd.deserialize<{}>({});\n'.format('m_' + m.name, self.generate_type(m.type), i)
-                    out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
-                else:
-                    print('TODO: generate encode dynamic width members')
+                tag_present = False
+                tag = 0
+                optional = False
+                for attr in m.attributes:
+                    if attr.name == 'tag':
+                        tag_present = True
+                        tag = attr.values[0]
+                    elif attr.name == 'optional':
+                        optional = True
 
+                assert tag_present # Implement untagged fields in tail later
+
+                out += '\t\t\t\tcase {}:\n'.format(tag)
+                out += '\t\t\t\t\t{} = true;\n'.format('p_' + m.name)
+
+                if m.type.is_array and m.type.array_size > 0:
+                    out += '\t\t\t\t\t{} = rd.deserialize<{}>(i, {});\n'.format('m_' + m.name, self.generate_type(m.type), m.type.array_size)
+                    out += '\t\t\t\t\ti += {};\n'.format(fixed_type_size(m.type))
+                elif m.type.base_type != 'string' and m.type.array_size == 0:
+                    out += '\t\t\t\t\t{} = rd.deserialize<{}>(i);\n'.format('m_' + m.name, self.generate_type(m.type))
+                    out += '\t\t\t\t\ti += {};\n'.format(fixed_type_size(m.type))
+                else:
+                    print('TODO: Encode dynamic width members')
+
+                out += '\t\t\t\t\tbreak;\n'
+
+            out += '\t\t\t\tdefault:\n'
+            out += '\t\t\t\t\t// TODO: Unknown tag, panic\n'
+            out += '\t\t\t\t\treturn false;\n'
+
+            out += '\t\t\t}\n'
+            out += '\t\t}\n'
         except:
             pass
 
