@@ -29,7 +29,7 @@ struct varint {
 	}
 
 	size_t decode(uint8_t *data) {
-		int n_bytes = __builtin_ctz(data[0]) + 1;
+		int n_bytes = data[0] ? __builtin_ctz(data[0]) + 1 : 9;
 		if (n_bytes > 8)
 			n_bytes = 9;
 
