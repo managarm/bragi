@@ -1,4 +1,4 @@
-from tokens import *
+from .tokens import *
 
 class StdlibTraits:
     def needs_allocator(self):

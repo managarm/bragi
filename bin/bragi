@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
+
 from lark.lark import Lark
 from lark.visitors import Transformer, v_args
 from lark.exceptions import *
 import sys
 
-from cpp_generator import CodeGenerator
-from tokens import *
+from bragi.cpp_generator import CodeGenerator
+from bragi.tokens import *
 
 grammar = '''
 start: (message | enum)+
