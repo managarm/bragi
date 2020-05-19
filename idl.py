@@ -1,4 +1,5 @@
-from lark import Lark, Transformer, v_args
+from lark.lark import Lark
+from lark.visitors import Transformer, v_args
 from lark.exceptions import *
 import sys
 
