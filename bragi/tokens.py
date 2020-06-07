@@ -46,6 +46,16 @@ class MessageMember:
     def __repr__(self):
         return (('(' + str(self.attributes) + ') ') if len(self.attributes) > 0 else '') + str(self.type) + ' ' + self.name + ((' = ' + str(self.default_value)) if self.default_value is not None else '')
 
+class TagsBlock:
+    def __init__(self, line, column, members):
+        self.line = line
+        self.column = column
+        self.members = members
+
+    def __repr__(self):
+        return 'TagsBlock { ' + str(self.members) + ' }'
+
+
 class Type:
     def __init__(self, line, column, name):
         self.line = line

@@ -235,8 +235,8 @@ class CodeGenerator:
             tail = None
 
         all_members = flatten([
-            head.members if head is not None else [],
-            tail.members if tail is not None else []
+            flatten((m.members if type(m) is TagsBlock else [m] for m in head.members) if head is not None else []),
+            flatten((m.members if type(m) is TagsBlock else [m] for m in tail.members) if tail is not None else [])
         ])
 
         out = ''

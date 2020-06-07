@@ -10,7 +10,6 @@ head(256):
 	byte[64] bib;
 
 tail:
-	optional tag(13) byte[3] bub = [1,2,3];
 	optional byte[] beb = [7];
 	string bob = "test";
 }
@@ -38,4 +37,14 @@ tail:
 	uint32[] bif;
 }
 
-
+message msg5 5 {
+head(128):
+	uint64 foo;
+	tags {
+		optional tag(1) byte[4] bab;
+	}
+	byte[16] arr;
+tail:
+	int32 baz;
+	uint32[] bif;
+}
