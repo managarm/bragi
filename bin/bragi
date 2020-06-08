@@ -193,7 +193,6 @@ class CompilationUnit:
 
     # returns size of member in bytes
     def verify_member(self, m, parent):
-        print(f'in verify_member with {m}')
         if type(m) is TagsBlock:
             for t in m.members:
                 self.verify_member(t, m)

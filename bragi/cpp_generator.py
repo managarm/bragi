@@ -103,27 +103,54 @@ class CodeGenerator:
     def is_dyn_pointer(self, m):
         return type(m) is TagsBlock or (m.type.is_array and m.type.array_size == -1)
 
-    def emit_fixed_member_encoder(self, member, depth = 1, n_fixup = 0):
+    def emit_stmt_checked(self, stmt, depth = 1):
         indent = '\t' * depth
 
-        mname = ''
-        pname = ''
-        if type(member) is TagsBlock:
-            mname = f'tags{n_fixup}'
-            pname = f'?? tags{n_fixup}'
-        else:
-            mname = f'm_{member.name}'
-            pname = f'p_{member.name}'
+        out = f'{indent}if (!{stmt})\n'
 
-        out = f'{indent}// Encode {mname}\n';
+        depth += 1
+        indent = '\t' * depth
+        out += f'{indent}return false;\n'
+
+        return out
+
+    def emit_write_varint(self, value, depth = 1):
+        return self.emit_stmt_checked(f'wr.write_varint({value})', depth)
+
+    def emit_write_integer(self, value, depth = 1, vtype = None):
+        if vtype:
+            return self.emit_stmt_checked(f'wr.write_integer<{vtype}>({value})', depth)
+        return self.emit_stmt_checked(f'wr.write_integer({value})', depth)
+
+    def emit_write_fixed_array(self, m, depth = 1):
+        return self.emit_stmt_checked(f'wr.write_integer_array(m_{m.name}.data(), m_{m.name}.size(), {m.type.array_size})', depth)
+
+    def emit_write_dynamic_array(self, m, depth = 1):
+        out = self.emit_write_varint(f'm_{m.name}.size()', depth)
+        out += self.emit_stmt_checked(f'wr.write_integer_array(m_{m.name}.data(), m_{m.name}.size(), m_{m.name}.size())', depth)
+        return out
+
+    def emit_assert_that(self, stmt, depth = 1):
+        indent = '\t' * depth
+        return f'{indent}{self.stdlib_traits.assert_func()}({stmt});\n'
+
+    def emit_write_integer_at(self, offset, value, depth = 1, vtype = None):
+        if vtype:
+            return self.emit_stmt_checked(f'wr.write_integer_at<{vtype}>({offset}, {value})', depth)
+        return self.emit_stmt_checked(f'wr.write_integer_at({offset}, {value})', depth)
+
+    def emit_fixed_member_encoder(self, member, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}// Encode {"tags" if type(member) is TagsBlock else member.name}\n';
         if self.is_dyn_pointer(member):
-            out += f'{indent}i += 8;\n' # skip pointer
+            out += self.emit_write_integer(0, depth, 'uint64_t')
         elif member.type.is_array:
-            out += f'{indent}{self.stdlib_traits.assert_func()}({pname});\n'
-            out += f'{indent}i += wr.serialize(i, {mname}, {member.type.array_size});\n'
+            out += self.emit_assert_that(f'p_{member.name}', depth)
+            out += self.emit_write_fixed_array(member, depth)
         else:
-            out += f'{indent}{self.stdlib_traits.assert_func()}({pname});\n'
-            out += f'{indent}i += wr.serialize(i, {mname});\n'
+            out += self.emit_assert_that(f'p_{member.name}', depth)
+            out += self.emit_write_integer(f'm_{member.name}', depth)
 
         return out + '\n'
 
@@ -138,57 +165,52 @@ class CodeGenerator:
                 indent = '\t' * depth
 
                 assert m.tag
-                mname = f'm_{m.name}'
-                pname = f'p_{m.name}'
 
-                out += f'{indent}i += bragi::varint{{{m.tag.value}}}.encode(wr.buf() + i);\n'
+                out += self.emit_write_varint(m.tag.value, depth)
                 if m.type.is_array:
-                    out += f'{indent}i += wr.serialize(i, {mname}, {mname}.size());\n'
+                    out += self.emit_write_dynamic_array(m, depth)
                 else:
-                    out += f'{indent}i += wr.serialize(i, {"p_" + m.name});\n'
+                    out += self.emit_write_integer(f'm_{m.name}', depth)
 
                 depth -= 1
                 indent = '\t' * depth
                 out += f'{indent}}}\n'
 
-        return out
+            out += self.emit_write_varint(0, depth) # terminator tag
+        else:
+            assert member.type.is_array
+            out += self.emit_write_dynamic_array(member, depth)
 
-    def emit_head_encoder(self, message, depth = 1):
+        return out + '\n'
+
+    def emit_part_encoder(self, what, members, depth = 1):
         indent = '\t' * depth
 
-        out = f'{indent}bool encode_head(void *buf, size_t size) {{\n'
+        out = f'{indent}template <typename Writer>\n'
+        out += f'{indent}bool encode_{what}(Writer &wr) {{\n'
         depth += 1
         indent = '\t' * depth
 
-        out += f'{indent}bragi::writer wr{{buf, size}};\n'
-        out += f'{indent}uint64_t i = 0;\n\n'
+        if what == 'head':
+            out += f'{indent}// encode ID\n'
+            out += self.emit_write_integer('message_id', depth) + '\n'
 
-        n_fixup = 0
-        for m in message.head.members:
-            out += self.emit_fixed_member_encoder(m, depth, n_fixup)
-            if self.is_dyn_pointer(m):
-                n_fixup += 1
+        for m in members:
+            out += self.emit_fixed_member_encoder(m, depth)
 
         i = 0
-        n_fixup = 0
-        for m in message.head.members:
+        for m in members:
             if not self.is_dyn_pointer(m):
                 size = fixed_type_size(m.type)
                 assert size
                 i += size
                 continue
 
-            mname = ''
-            if type(m) is TagsBlock:
-                mname = f'tags{n_fixup}'
-            else:
-                mname = f'm_{m.name}'
-
-            out += f'{indent}// Encode {mname} (dynamic width)\n';
-            out += f'{indent}wr.serialize<uint64_t>({i}, i);\n'
+            out += f'{indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n';
+            out += self.emit_write_integer_at(i, 'wr.index()', depth)
             out += self.emit_dynamic_member_encoder(m, depth)
 
-            n_fixup += 1
+            i += 8
 
         out += f'{indent}return true;\n'
         depth -= 1
@@ -196,66 +218,6 @@ class CodeGenerator:
         out += f'{indent}}}\n\n'
 
         return out
-
-    def generate_encoder(self, message):
-        out = '\tbool serialize_to_array(void *buf, size_t size) {\n'
-        out += '\t\tbragi::internals::writer wr{static_cast<uint8_t *>(buf), size};\n'
-        out += '\t\tif (size < head_size)\n\t\t\treturn false;\n'
-
-        out += '\t\twr.serialize(0, message_id);\n'
-
-        i = 8
-        try:
-            for m in message.head.members:
-                if m.type.is_array:
-                    out += '\t\twr.serialize({}, {}, {});\n'.format(i, 'm_' + m.name, m.type.array_size)
-                    i += int(base_type_size(m.type.base_type) * m.type.array_size)
-                else:
-                    out += '\t\twr.serialize({}, {});\n'.format(i, 'm_' + m.name)
-                    i += int(base_type_size(m.type.base_type))
-
-            i = message.head.size
-        except:
-            pass
-
-        try:
-            out += '\t\tsize_t i = {}; // Index into tail\n'.format(message.head.size);
-            for m in message.tail.members:
-                tag_present = False
-                tag = 0
-                optional = False
-                for attr in m.attributes:
-                    if attr.name == 'tag':
-                        tag_present = True
-                        tag = attr.values[0]
-                    elif attr.name == 'optional':
-                        optional = True
-
-                assert tag_present # Implement untagged fields in tail later
-                
-                if optional:
-                    out += '\t\tif ({}) {{\n'.format('p_' + m.name)
-                else:
-                    out += '\t\tassert({});\n'.format('p_' + m.name)
-
-                if tag_present:
-                    if optional:
-                        out += '\t' # Keep outputted code looking nice
-                    out += '\t\ti += wr.serialize(i, {});\n'.format(f'varint{{{tag}}}')
-
-                if optional:
-                        out += '\t' # Keep outputted code looking nice
-                if m.type.is_array:
-                    out += '\t\ti += wr.serialize(i, {}, {});\n'.format('m_' + m.name, m.type.array_size)
-                else:
-                    out += '\t\ti += wr.serialize(i, {});\n'.format('m_' + m.name)
-                
-                if optional:
-                    out += '\t\t}}\n'.format()
-        except:
-            pass
-
-        return out + '\t\treturn true;\n\t}\n\n'
 
     def generate_decoder(self, message):
         out = '\tbool deserialize_from_array(void *buf, size_t size) {\n'
@@ -348,24 +310,20 @@ class CodeGenerator:
         if self.stdlib_traits.needs_allocator():
             out += 'template <typename Allocator>\n'
 
-        out += 'struct {} {{\n'.format(message.name)
-        out += '\tstatic constexpr uint64_t message_id = {};\n'.format(message.id)
-        out += '\tstatic constexpr size_t head_size = {};\n\n'.format(message.head.size)
+        out += f'struct {message.name} {{\n'
+        out += f'\tstatic constexpr uint64_t message_id = {message.id};\n'
+        out += f'\tstatic constexpr size_t head_size = {message.head.size};\n\n'
 
-        out += '\t{}({})\n\t: '.format(message.name, self.stdlib_traits.allocator_argument())
+        out += f'\t{message.name}({self.stdlib_traits.allocator_argument()})\n\t: '
 
-        i = 0
-        for m in all_members:
-            out += 'm_{}{{{}}}, p_{}{{false}}'.format(m.name,
-                    self.stdlib_traits.allocator_parameter() if m.type.is_array else '',
-                    m.name)
+        for i, m in enumerate(all_members):
+            alloc = self.stdlib_traits.allocator_parameter() if m.type.is_array else ''
+            out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
 
             if i < len(all_members) - 1:
                 out += ', \n\t  '
 
-            i += 1
-
-        out += ' {}\n\n'
+        out += ' { }\n\n'
 
         for m in all_members:
             # getter
@@ -380,7 +338,10 @@ class CodeGenerator:
             out += '\t\tm_{} = val;\n'.format(m.name)
             out += '\t}\n\n'
 
-        out += self.emit_head_encoder(message)
+        if message.head:
+            out += self.emit_part_encoder('head', message.head.members)
+        if message.tail:
+            out += self.emit_part_encoder('tail', message.tail.members)
 
 #        out += self.generate_encoder(message)
 #        out += self.generate_decoder(message)

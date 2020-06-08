@@ -5,29 +5,27 @@
 namespace bragi {
 
 struct varint {
-	varint(uint64_t value)
-	: value{value} {}
-
-	uint64_t value;
-
-	size_t encode(uint8_t *buf) {
-		uint8_t *original_buf = buf;
-		int data_bits = 64 - __builtin_clzll(value | 1); // Make sure that we fill at least 1 byte if data == 0
+	template <typename F>
+	static bool write(uint64_t value, F func) {
+		// Make sure that we fill at least 1 byte if data == 0
+		int data_bits = 64 - __builtin_clzll(value | 1);
 		int bytes = 1 + (data_bits - 1) / 7;
 
 		uint64_t val = this->value;
 
 		if(data_bits > 56){
-			*buf++ = 0;
+			if (!func(0))
+				return false;
 			bytes = 8;
 		} else {
 			val = ((2 * val + 1) << (bytes - 1));
 		}
 
 		for(int i = 0; i < bytes; i++)
-			*buf++ = (val >> (i * 8)) & 0xFF;
+			if (!func((val >> (i * 8)) & 0xFF))
+				return false;
 
-		return buf - original_buf;
+		return true;
 	}
 
 	size_t decode(uint8_t *data) {
@@ -51,41 +49,64 @@ struct varint {
 	}
 };
 
+struct limited_writer {
+	limited-writer(uint8_t *buf, size_t size)
+	: buf_{buf}, size_{size} {}
 
-struct writer {
-	writer(uint8_t *buf, size_t size)
-	: _buf{buf}, _size{size} {}
-
-	template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-	size_t serialize(size_t off, T val) {
+	template <typename T>
+	bool write_integer(T val) {
 		for (size_t i = 0; i < sizeof(T); i++) {
-			_buf[off + i] = (val & 0xFF);
+			buf_[index_++] = (val & 0xFF);
+			val >>= 8;
+
+			if (index_ >= size_)
+				return false;
+		}
+
+		return true;
+	}
+
+	template <typename T>
+	bool write_integer_at(size_t pos, T val) {
+		for (size_t i = 0; i < sizeof(T); i++) {
+			if (pos + i >= size_)
+				return false;
+			buf_[pos + i] = (val & 0xFF);
 			val >>= 8;
 		}
 
-		return sizeof(T);
+		return true;
 	}
 
-	template <typename T, typename = typename T::value_type>
-	size_t serialize(size_t off, T val, size_t size) {
-		for (size_t i = 0; i < size; i++) {
-			serialize<typename T::value_type>(off + i * sizeof(typename T::value_type), val.size() > i ? val[i] : 0);
+	template <typename T>
+	bool write_integer_array(const T *val, size_t data_size, size_t total_size) {
+		for (size_t i = 0; i < total_size; i++) {
+			if (!write_integer<T>(data_size > i ? val[i] : 0))
+				return false;
 		}
 
-		return size * sizeof(typename T::value_type);
+		return true;
 	}
 
-	template <typename T, typename = std::enable_if_t<std::is_same_v<T, varint>>>
-	size_t serialize(size_t off, varint val){
-		return val.encode(_buf[off]);
+	size_t write_varint(uint64_t val) {
+		return varint::write(val, [&] (uint8_t v) {
+			buf_[index_++] = v;
+			return index_ < size_;
+		});
 	}
 
-	uint8_t *buf() {
-		return _buf;
+	uint8_t *buf() const {
+		return buf_;
 	}
+
+	size_t index() {
+		return index_;
+	}
+
 private:
-	uint8_t *_buf;
-	size_t _size;
+	uint8_t *buf_;
+	size_t size_;
+	size_t index_;
 };
 
 struct reader {
