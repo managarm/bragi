@@ -85,11 +85,12 @@ class Attribute:
         return self.name + (('( ' + str(self.values) + ' )') if len(self.values) > 0 else '')
 
 class Enum:
-    def __init__(self, line, column, name, mode, members):
+    def __init__(self, line, column, name, mode, type, members):
         self.line = line
         self.column = column
         self.name = name
         self.mode = mode
+        self.type = Type(line, column, type)
         self.members = members
 
     def __repr__(self):

@@ -22,7 +22,7 @@ attributes: [attribute*]
 
 message: "message" NAME INT message_block
 enum: "enum" NAME enum_block
-consts: "consts" NAME enum_block
+consts: "consts" NAME TYPE_NAME enum_block
 
 head_section: "head" "(" INT ")" ":" message_member+
 tail_section: "tail" ":" message_member+
@@ -83,11 +83,11 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def enum(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], "enum", flatten(items[1:]))
+        return Enum(meta.line, meta.column, items[0], "enum", "", flatten(items[1:]))
 
     @v_args(meta = True)
     def consts(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], "consts", flatten(items[1:]))
+        return Enum(meta.line, meta.column, items[0], "consts", items[1], flatten(items[2:]))
 
     @v_args(meta = True)
     def enum_member(self, items, meta):

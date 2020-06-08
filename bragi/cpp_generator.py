@@ -9,8 +9,6 @@ class StdlibTraits:
         return ''
     def vector(self):
         return 'std::vector'
-    def string(self):
-        return 'std::string'
     def assert_func(self):
         return 'assert'
 
@@ -23,8 +21,6 @@ class FriggTraits:
         return 'allocator'
     def vector(self):
         return 'frg::vector'
-    def string(self):
-        return 'frg::string'
     def assert_func(self):
         return 'FRG_ASSERT'
 
@@ -57,7 +53,9 @@ class CodeGenerator:
             if m.value is not None:
                 i = m.value.value
 
-            out += f'\tinline constexpr {"int"} {m.name} = {i};\n' # TODO: get type from the enum
+            assert not enum.type.is_array
+
+            out += f'\tinline constexpr {self.generate_type(enum.type)} {m.name} = {i};\n'
 
             i += 1
 
