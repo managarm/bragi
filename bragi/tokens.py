@@ -61,10 +61,15 @@ class Type:
         self.line = line
         self.column = column
 
-        parts = name.split('[', 1)
-        self.is_array = len(parts) > 1
-        self.base_type = parts[0]
-        self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
+        if name != 'string':
+            parts = name.split('[', 1)
+            self.is_array = len(parts) > 1
+            self.base_type = parts[0]
+            self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
+        else:
+            self.is_array = True
+            self.base_type = 'uint8'
+            self.array_size = -1
 
     def __repr__(self):
         return self.base_type + (('[' + str(self.array_size) + ']') if self.is_array else '')

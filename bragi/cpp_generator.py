@@ -31,7 +31,7 @@ class FriggTraits:
 flatten = lambda l: [item for sublist in l for item in sublist]
 
 class CodeGenerator:
-    def __init__(self, stdlib = 'libc++'):
+    def __init__(self, stdlib):
         self.stdlib_traits = None
 
         if stdlib == 'libc++':
@@ -81,16 +81,130 @@ class CodeGenerator:
             base_type_name = 'int64_t'
         elif t.base_type == 'uint64':
             base_type_name = 'uint64_t'
-        elif t.base_type == 'string':
-            base_type_name = '{}{}'.format(self.stdlib_traits.string(),
-                    '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
         if t.is_array:
-            out = self.stdlib_traits.vector()
-            out += '<{}{}>'.format(base_type_name,
+            return '{}<{}{}>'.format(self.stdlib_traits.vector(), base_type_name,
                     ', Allocator' if self.stdlib_traits.needs_allocator() else '')
-            return out
         else:
             return base_type_name
+
+    def needs_fixup(self, m):
+        return type(m) is TagsBlock or (m.type.is_array and m.type.array_size == -1)
+
+    def count_fixups_required(self, members):
+        i = 0
+        for m in members:
+            if self.needs_fixup(m):
+                i += 1
+
+        return i
+
+    def emit_fixed_member_encoder(self, member, depth = 1, n_fixup = 0):
+        indent = '\t' * depth
+
+        mname = ''
+        pname = ''
+        if type(member) is TagsBlock:
+            mname = f'tags{n_fixup}'
+            pname = f'?? tags{n_fixup}'
+        else:
+            mname = f'm_{member.name}'
+            pname = f'p_{member.name}'
+
+        out = f'{indent}// Encode {mname}\n';
+        if self.needs_fixup(member):
+            out += f'{indent}fixups[{n_fixup}] = i;\n'
+            out += f'{indent}i += 16;\n' # skip pointer + size
+        elif member.type.is_array:
+            out += f'{indent}{self.stdlib_traits.assert_func()}({pname});\n'
+            out += f'{indent}i += wr.serialize(i, {mname}, {member.type.array_size});\n'
+        else:
+            out += f'{indent}{self.stdlib_traits.assert_func()}({pname});\n'
+            out += f'{indent}i += wr.serialize(i, {mname});\n'
+
+        return out + '\n'
+
+    def emit_var_array_encoder(self, member, depth = 1):
+        indent = '\t' * depth
+
+    def emit_dynamic_member_encoder(self, member, depth = 1):
+        indent = '\t' * depth
+        out = ''
+
+        if type(member) is TagsBlock:
+            for m in member.members:
+                out += f'{indent}if ({"p_" + m.name}) {{\n'
+                depth += 1
+                indent = '\t' * depth
+
+                tag = -1
+                for attr in m.attributes:
+                    if attr.name == 'tag':
+                        tag_present = True
+                        tag = attr.values[0]
+
+                mname = f'm_{m.name}'
+                pname = f'p_{m.name}'
+
+                out += f'{indent}i += bragi::varint{{{tag}}}.encode(wr.buf() + i);\n'
+                if m.type.is_array:
+                    out += f'{indent}i += wr.serialize(i, {mname}, {mname}.size());\n'
+                else:
+                    out += f'{indent}i += wr.serialize(i, {"p_" + m.name});\n'
+
+                depth -= 1
+                indent = '\t' * depth
+                out += f'{indent}}}\n'
+
+        return out
+
+    def emit_head_encoder(self, message, depth = 1):
+        n_fixups = self.count_fixups_required(message.head.members)
+        indent = '\t' * depth
+
+        out = f'{indent}bool encode_head(void *buf, size_t size) {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}bragi::writer wr{{buf, size}};\n'
+        out += f'{indent}uint64_t i = 0;\n'
+
+        if n_fixups > 0:
+            out += f'{indent}uint64_t fixups[{n_fixups}];\n'
+            out += f'{indent}uint64_t old_i = 0;\n'
+
+        out += '\n'
+
+        n_fixup = 0
+        for m in message.head.members:
+            out += self.emit_fixed_member_encoder(m, depth, n_fixup)
+            if self.needs_fixup(m):
+                n_fixup += 1
+
+        n_fixup = 0
+        for m in message.head.members:
+            if not self.needs_fixup(m):
+                continue
+
+            mname = ''
+            if type(m) is TagsBlock:
+                mname = f'tags{n_fixup}'
+            else:
+                mname = f'm_{m.name}'
+
+            out += f'{indent}// Encode {mname} (dynamic width)\n';
+            out += f'{indent}wr.serialize<uint64_t>(fixups[{n_fixup}], i);\n'
+            out += f'{indent}old_i = i;\n'
+            out += self.emit_dynamic_member_encoder(m, depth)
+            out += f'{indent}wr.serialize<uint64_t>(fixups[{n_fixup}] + 8, i - old_i);\n'
+
+            n_fixup += 1
+
+        out += f'{indent}return true;\n'
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n\n'
+
+        return out
 
     def generate_encoder(self, message):
         out = '\tbool serialize_to_array(void *buf, size_t size) {\n'
@@ -264,19 +378,21 @@ class CodeGenerator:
 
         for m in all_members:
             # getter
-            out += '\tinline {} {}() {{\n'.format(self.generate_type(m.type), m.name)
+            out += '\t{} {}() {{\n'.format(self.generate_type(m.type), m.name)
             out += '\t\t{}(p_{});\n'.format(self.stdlib_traits.assert_func(), m.name)
             out += '\t\treturn m_{};\n'.format(m.name)
             out += '\t}\n\n'
 
             # setter
-            out += '\tinline void set_{}({} val) {{\n'.format(m.name, self.generate_type(m.type))
+            out += '\tvoid set_{}({} val) {{\n'.format(m.name, self.generate_type(m.type))
             out += '\t\tp_{} = true;\n'.format(m.name)
             out += '\t\tm_{} = val;\n'.format(m.name)
             out += '\t}\n\n'
 
-        out += self.generate_encoder(message)
-        out += self.generate_decoder(message)
+        out += self.emit_head_encoder(message)
+
+#        out += self.generate_encoder(message)
+#        out += self.generate_decoder(message)
 
         out += 'private:\n'
         for m in all_members:

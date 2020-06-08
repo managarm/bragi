@@ -281,7 +281,7 @@ args = parser.parse_args()
 
 source = args.input[0]
 output = args.output[0]
-lib = args.lib
+lib = args.lib[0]
 
 print(f'Compiling {source} into {output}, for {lib}')
 

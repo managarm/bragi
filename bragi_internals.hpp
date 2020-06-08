@@ -2,14 +2,16 @@
 #include <cstdint>
 #include <cstddef>
 
-namespace bragi::internals {
+namespace bragi {
 
 struct varint {
-	varint(uint64_t value): value{value} {}
+	varint(uint64_t value)
+	: value{value} {}
+
 	uint64_t value;
 
-	size_t encode(uint8_t* buf) {
-		uint8_t* original_buf = buf;
+	size_t encode(uint8_t *buf) {
+		uint8_t *original_buf = buf;
 		int data_bits = 64 - __builtin_clzll(value | 1); // Make sure that we fill at least 1 byte if data == 0
 		int bytes = 1 + (data_bits - 1) / 7;
 
@@ -35,7 +37,7 @@ struct varint {
 
 		uint64_t ret = 0;
 		uint64_t shift = n_bytes < 9 ? 8 - (n_bytes % 8) : 0;
-	
+
 		for(int i = 1; i < n_bytes; i++) {
 			ret |= static_cast<uint64_t>(data[i]) << ((i - 1) * 8);
 		}
@@ -77,6 +79,10 @@ struct writer {
 	size_t serialize(size_t off, varint val){
 		return val.encode(_buf[off]);
 	}
+
+	uint8_t *buf() {
+		return _buf;
+	}
 private:
 	uint8_t *_buf;
 	size_t _size;
@@ -108,7 +114,7 @@ struct reader {
 	}
 
 	template <typename T, typename = std::enable_if_t<std::is_same_v<T, varint>>>
-	T deserialize(size_t off, size_t& out_size){
+	T deserialize(size_t off, size_t &out_size){
 		varint ret{};
 		out_size = ret.decode(_buf[off]);
 		return ret.value;
@@ -119,4 +125,4 @@ private:
 	size_t _size;
 };
 
-} // namespace bragi::internals
+} // namespace bragi
