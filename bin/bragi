@@ -12,13 +12,8 @@ from bragi.tokens import *
 grammar = '''
 start: (message | enum | consts)+
 
-value: INT                          -> number
-     | ESCAPED_STRING               -> string
-     | "[" (value ",")* value? "]"  -> array
-
-ATTRIBUTE_NAME: "tag" | "optional"
-attribute: ATTRIBUTE_NAME ["(" (value ",")* value? ")"]
-attributes: [attribute*]
+tag: "tag" "(" INT ")"
+attributes: tag?
 
 message: "message" NAME INT message_block
 enum: "enum" NAME enum_block
@@ -30,8 +25,8 @@ tail_section: "tail" ":" message_member+
 enum_block: "{" (enum_member ",")* enum_member "}"
 message_block: "{" (head_section | tail_section)+ "}"
 
-enum_member: NAME ["=" value]
-message_member: attributes TYPE_NAME NAME ["=" value] ";" -> message_member
+enum_member: NAME ["=" INT]
+message_member: attributes TYPE_NAME NAME ";" -> message_member
                 | "tags" "{" message_member+ "}" -> tags_block
 
 TYPE_NAME: NAME ["[" [INT] "]"]
@@ -68,18 +63,18 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def message_member(self, items, meta):
-        return MessageMember(meta.line, meta.column, items[0], Type(meta.line, meta.column, items[1]), items[2], items[3] if len(items) > 3 else None)
+        return MessageMember(meta.line, meta.column, items[0], Type(meta.line, meta.column, items[1]), items[2])
 
     @v_args(meta = True)
     def tags_block(self, items, meta):
         return TagsBlock(meta.line, meta.column, items)
 
     def attributes(self, items):
-        return items
+        return items[0] if len(items) > 0 else None
 
     @v_args(meta = True)
-    def attribute(self, items, meta):
-        return Attribute(meta.line, meta.column, items[0], items[1:])
+    def tag(self, items, meta):
+        return Tag(meta.line, meta.column, items[0])
 
     @v_args(meta = True)
     def enum(self, items, meta):
@@ -91,23 +86,10 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def enum_member(self, items, meta):
-        return EnumMember(meta.line, meta.column, items[0], items[1] if len(items) > 1 else None)
+        return EnumMember(meta.line, meta.column, items[0], int(items[1]) if len(items) > 1 else None)
 
     def enum_block(self, items):
         return items
-
-    @v_args(meta = True)
-    def number(self, item, meta):
-        return ConstantValue(meta.line, meta.column, 'number', int(item[0]))
-
-    @v_args(meta = True)
-    def string(self, item, meta):
-        return ConstantValue(meta.line, meta.column, 'string', item[0])
-
-    @v_args(meta = True)
-    def array(self, items, meta):
-        return ConstantValue(meta.line, meta.column, 'array', items)
-
 
 def token_name_to_human_readable(token):
     if token == 'NAME':
@@ -208,9 +190,6 @@ class CompilationUnit:
             if type(m) is not EnumMember:
                 self.report_message(m, 'error',
                     'unexpected token inside of an enum', '')
-            if m.value is not None and m.value.type != 'number':
-                self.report_message(m, 'error', 
-                    'enum value must be a number', '')
 
     # returns size of member in bytes
     def verify_member(self, m, parent):
@@ -218,7 +197,7 @@ class CompilationUnit:
         if type(m) is TagsBlock:
             for t in m.members:
                 self.verify_member(t, m)
-                if not any(attr.name == 'tag' for attr in t.attributes):
+                if not t.tag:
                     self.report_message(t, 'error',
                         'untagged member in tags block', '')
         else:
@@ -226,26 +205,7 @@ class CompilationUnit:
                 self.report_message(m, 'error',
                     'unexpected token inside of an message section', '')
 
-            if m.default_value is not None:
-                if m.default_value.type == 'array' and not m.type.is_array:
-                    self.report_message(m.default_value, 'error',
-                        'default value of a non-array member cannot be an array', 
-                        'Was expecting a {} here'.format(m.type))
-
-                if m.type.is_array and m.default_value.type != 'array':
-                    self.report_message(m.default_value, 'error',
-                        'default value of an array member must be an array',
-                        'Was expecting an array here')
-
-                # TODO: check type mismatch
-
-                if m.type.is_array and m.type.array_size != -1 and m.type.array_size < len(m.default_value.value):
-                    self.report_message(m.default_value, 'error',
-                        'expected array with at most {} elements, but array with {} was given'.format(
-                            m.type.array_size, len(m.default_value.value)),
-                        'Was expecting an at most {} element array here'.format(m.type.array_size))
-
-            if any(attr.name == 'tag' for attr in m.attributes) and type(parent) is not TagsBlock:
+            if m.tag and type(parent) is not TagsBlock:
                 self.report_message(m, 'error',
                     'tagged member outside of tags block', '')
 

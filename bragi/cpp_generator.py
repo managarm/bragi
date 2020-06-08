@@ -51,7 +51,7 @@ class CodeGenerator:
 
         for m in enum.members:
             if m.value is not None:
-                i = m.value.value
+                i = m.value
 
             assert not enum.type.is_array
 
@@ -67,15 +67,13 @@ class CodeGenerator:
 
         for m in enum.members:
             if m.value is not None:
-                i = m.value.value
+                i = m.value
 
-            out += f'\t{m.name} = {i};\n'
+            out += f'\t{m.name} = {i},\n'
 
             i += 1
 
         return out + f'}} // enum class {enum.name}\n'
-
-
 
     def generate_type(self, t):
         base_type_name = t.base_type
@@ -102,16 +100,8 @@ class CodeGenerator:
         else:
             return base_type_name
 
-    def needs_fixup(self, m):
+    def is_dyn_pointer(self, m):
         return type(m) is TagsBlock or (m.type.is_array and m.type.array_size == -1)
-
-    def count_fixups_required(self, members):
-        i = 0
-        for m in members:
-            if self.needs_fixup(m):
-                i += 1
-
-        return i
 
     def emit_fixed_member_encoder(self, member, depth = 1, n_fixup = 0):
         indent = '\t' * depth
@@ -126,9 +116,8 @@ class CodeGenerator:
             pname = f'p_{member.name}'
 
         out = f'{indent}// Encode {mname}\n';
-        if self.needs_fixup(member):
-            out += f'{indent}fixups[{n_fixup}] = i;\n'
-            out += f'{indent}i += 16;\n' # skip pointer + size
+        if self.is_dyn_pointer(member):
+            out += f'{indent}i += 8;\n' # skip pointer
         elif member.type.is_array:
             out += f'{indent}{self.stdlib_traits.assert_func()}({pname});\n'
             out += f'{indent}i += wr.serialize(i, {mname}, {member.type.array_size});\n'
@@ -148,16 +137,11 @@ class CodeGenerator:
                 depth += 1
                 indent = '\t' * depth
 
-                tag = -1
-                for attr in m.attributes:
-                    if attr.name == 'tag':
-                        tag_present = True
-                        tag = attr.values[0]
-
+                assert m.tag
                 mname = f'm_{m.name}'
                 pname = f'p_{m.name}'
 
-                out += f'{indent}i += bragi::varint{{{tag}}}.encode(wr.buf() + i);\n'
+                out += f'{indent}i += bragi::varint{{{m.tag.value}}}.encode(wr.buf() + i);\n'
                 if m.type.is_array:
                     out += f'{indent}i += wr.serialize(i, {mname}, {mname}.size());\n'
                 else:
@@ -170,7 +154,6 @@ class CodeGenerator:
         return out
 
     def emit_head_encoder(self, message, depth = 1):
-        n_fixups = self.count_fixups_required(message.head.members)
         indent = '\t' * depth
 
         out = f'{indent}bool encode_head(void *buf, size_t size) {{\n'
@@ -178,23 +161,21 @@ class CodeGenerator:
         indent = '\t' * depth
 
         out += f'{indent}bragi::writer wr{{buf, size}};\n'
-        out += f'{indent}uint64_t i = 0;\n'
-
-        if n_fixups > 0:
-            out += f'{indent}uint64_t fixups[{n_fixups}];\n'
-            out += f'{indent}uint64_t old_i = 0;\n'
-
-        out += '\n'
+        out += f'{indent}uint64_t i = 0;\n\n'
 
         n_fixup = 0
         for m in message.head.members:
             out += self.emit_fixed_member_encoder(m, depth, n_fixup)
-            if self.needs_fixup(m):
+            if self.is_dyn_pointer(m):
                 n_fixup += 1
 
+        i = 0
         n_fixup = 0
         for m in message.head.members:
-            if not self.needs_fixup(m):
+            if not self.is_dyn_pointer(m):
+                size = fixed_type_size(m.type)
+                assert size
+                i += size
                 continue
 
             mname = ''
@@ -204,10 +185,8 @@ class CodeGenerator:
                 mname = f'm_{m.name}'
 
             out += f'{indent}// Encode {mname} (dynamic width)\n';
-            out += f'{indent}wr.serialize<uint64_t>(fixups[{n_fixup}], i);\n'
-            out += f'{indent}old_i = i;\n'
+            out += f'{indent}wr.serialize<uint64_t>({i}, i);\n'
             out += self.emit_dynamic_member_encoder(m, depth)
-            out += f'{indent}wr.serialize<uint64_t>(fixups[{n_fixup}] + 8, i - old_i);\n'
 
             n_fixup += 1
 

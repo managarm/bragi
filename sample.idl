@@ -10,23 +10,23 @@ head(256):
 	byte[64] bib;
 
 tail:
-	optional byte[] beb = [7];
-	string bob = "test";
+	byte[] beb;
+	string bob;
 }
 
 message msg2 2 {
 head(128):
-	optional byte[64] bab;
-	int32 bib = 2345;
+	byte[64] bab;
+	int32 bib;
 
 tail:
-	byte[4] bub = [1,2,3];
-	byte beb = 7;
-	byte bhb = 7;
-	string bob = "test";
+	byte[4] bub;
+	byte beb;
+	byte bhb;
+	string bob;
 }
 
-message msg3 3 {head(13): byte foo = 3;}
+message msg3 3 {head(13): byte foo;}
 
 message msg4 4 {
 head(64):
@@ -41,7 +41,7 @@ message msg5 5 {
 head(128):
 	uint64 foo;
 	tags {
-		optional tag(1) byte[4] bab;
+		tag(1) byte[4] bab;
 	}
 	byte[16] arr;
 tail:

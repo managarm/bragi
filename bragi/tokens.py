@@ -35,16 +35,15 @@ class Message:
         return 'Message(' + self.name + ', ' + self.id + ') { ' + str(self.body) + ' }'
 
 class MessageMember:
-    def __init__(self, line, column, attributes, type, name, default_value):
+    def __init__(self, line, column, tag, type, name):
         self.line = line
         self.column = column
-        self.attributes = attributes
+        self.tag = tag
         self.type = type
         self.name = name
-        self.default_value = default_value
 
     def __repr__(self):
-        return (('(' + str(self.attributes) + ') ') if len(self.attributes) > 0 else '') + str(self.type) + ' ' + self.name + ((' = ' + str(self.default_value)) if self.default_value is not None else '')
+        return (str(self.tag) + ' ' if self.tag else '') + str(self.type) + ' ' + self.name
 
 class TagsBlock:
     def __init__(self, line, column, members):
@@ -74,15 +73,14 @@ class Type:
     def __repr__(self):
         return self.base_type + (('[' + str(self.array_size) + ']') if self.is_array else '')
 
-class Attribute:
-    def __init__(self, line, column, name, values):
+class Tag:
+    def __init__(self, line, column, value):
         self.line = line
         self.column = column
-        self.name = name
-        self.values = values
+        self.value = value
 
     def __repr__(self):
-        return self.name + (('( ' + str(self.values) + ' )') if len(self.values) > 0 else '')
+        return 'tag(' + str(self.value) + ')'
 
 class Enum:
     def __init__(self, line, column, name, mode, type, members):
@@ -105,16 +103,6 @@ class EnumMember:
 
     def __repr__(self):
         return self.name + ((' = ' + str(self.value)) if self.value is not None else '')
-
-class ConstantValue:
-    def __init__(self, line, column, type, value):
-        self.line = line
-        self.column = column
-        self.value = value
-        self.type = type
-
-    def __repr__(self):
-        return str(self.value)
 
 class EofToken:
     def __init__(self, line, column):
