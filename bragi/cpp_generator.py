@@ -42,25 +42,42 @@ class CodeGenerator:
             raise AttributeError('invalid standard library')
 
     def generate(self, thing):
-        if type(thing) == Enum:
+        if type(thing) == Enum and thing.mode == "enum":
             return self.generate_enum(thing)
+        if type(thing) == Enum and thing.mode == "consts":
+            return self.generate_consts(thing)
         if type(thing) == Message:
             return self.generate_message(thing)
 
-    def generate_enum(self, enum):
-        out = 'namespace {} {{\n'.format(enum.name)
+    def generate_consts(self, enum):
+        out = f'namespace {enum.name} {{\n'
         i = 0
 
         for m in enum.members:
             if m.value is not None:
                 i = m.value.value
 
-            out += '\tinline constexpr {} {} = {};\n'.format(
-                    'int', m.name, i) # TODO: get type from the enum
+            out += f'\tinline constexpr {"int"} {m.name} = {i};\n' # TODO: get type from the enum
 
             i += 1
 
-        return out + '}} // namespace {}\n'.format(enum.name)
+        return out + f'}} // namespace {enum.name}\n'
+
+    def generate_enum(self, enum):
+        out = f'enum class {enum.name} {{\n'
+        i = 0
+
+        for m in enum.members:
+            if m.value is not None:
+                i = m.value.value
+
+            out += f'\t{m.name} = {i};\n'
+
+            i += 1
+
+        return out + f'}} // enum class {enum.name}\n'
+
+
 
     def generate_type(self, t):
         base_type_name = t.base_type
@@ -122,9 +139,6 @@ class CodeGenerator:
             out += f'{indent}i += wr.serialize(i, {mname});\n'
 
         return out + '\n'
-
-    def emit_var_array_encoder(self, member, depth = 1):
-        indent = '\t' * depth
 
     def emit_dynamic_member_encoder(self, member, depth = 1):
         indent = '\t' * depth
