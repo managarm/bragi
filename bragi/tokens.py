@@ -129,3 +129,14 @@ def fixed_type_size(t):
 
     return size
 
+def subscript_type_size(t):
+    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8':
+        return 1
+    elif t.base_type == 'int16' or t.base_type == 'uint16':
+        return 2
+    elif t.base_type == 'int32' or t.base_type == 'uint32':
+        return 4
+    elif t.base_type == 'int64' or t.base_type == 'uint64':
+        return 8
+
+    return None

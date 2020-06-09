@@ -247,8 +247,6 @@ source = args.input[0]
 output = args.output[0]
 lib = args.lib[0]
 
-print(f'Compiling {source} into {output}, for {lib}')
-
 with open(source, "r") as f:
     code = f.read()
     unit = CompilationUnit(source, code)

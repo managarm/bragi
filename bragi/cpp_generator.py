@@ -11,6 +11,8 @@ class StdlibTraits:
         return 'std::vector'
     def assert_func(self):
         return 'assert'
+    def includes(self):
+        return '#include <stdint.h>\n#include <stddef.h>\n#include <vector>\n#include <cassert>\n#include <optional>\n'
 
 class FriggTraits:
     def needs_allocator(self):
@@ -23,6 +25,8 @@ class FriggTraits:
         return 'frg::vector'
     def assert_func(self):
         return 'FRG_ASSERT'
+    def includes(self):
+        return '#include <stdint.h>\n#include <stddef.h>\n#include <frg/vector.hpp>\n#include <frg/macros.hpp>\n#include <frg/optional.hpp>\n'
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -38,12 +42,15 @@ class CodeGenerator:
             raise AttributeError('invalid standard library')
 
     def generate(self, thing):
+        header = self.stdlib_traits.includes()
+        header += '#include "bragi_internals.hpp"\n\n'
+
         if type(thing) == Enum and thing.mode == "enum":
-            return self.generate_enum(thing)
+            return header + self.generate_enum(thing)
         if type(thing) == Enum and thing.mode == "consts":
-            return self.generate_consts(thing)
+            return header + self.generate_consts(thing)
         if type(thing) == Message:
-            return self.generate_message(thing)
+            return header + self.generate_message(thing)
 
     def generate_consts(self, enum):
         out = f'namespace {enum.name} {{\n'
@@ -100,8 +107,19 @@ class CodeGenerator:
         else:
             return base_type_name
 
+    def subscript_type(self, t):
+        return self.generate_type(Type(t.line, t.column, t.base_type))
+
     def is_dyn_pointer(self, m):
         return type(m) is TagsBlock or (m.type.is_array and m.type.array_size == -1)
+
+    def count_dynamic(self, members):
+        i = 0
+
+        for m in members:
+            if self.is_dyn_pointer(m): i += 1
+
+        return i
 
     def emit_stmt_checked(self, stmt, depth = 1):
         indent = '\t' * depth
@@ -115,44 +133,32 @@ class CodeGenerator:
         return out
 
     def emit_write_varint(self, value, depth = 1):
-        return self.emit_stmt_checked(f'wr.write_varint({value})', depth)
+        return self.emit_stmt_checked(f'sr.write_varint(wr, {value})', depth)
 
     def emit_write_integer(self, value, depth = 1, vtype = None):
         if vtype:
-            return self.emit_stmt_checked(f'wr.write_integer<{vtype}>({value})', depth)
-        return self.emit_stmt_checked(f'wr.write_integer({value})', depth)
+            return self.emit_stmt_checked(f'sr.template write_integer<{vtype}>(wr, {value})', depth)
+        return self.emit_stmt_checked(f'sr.write_integer(wr, {value})', depth)
 
     def emit_write_fixed_array(self, m, depth = 1):
-        return self.emit_stmt_checked(f'wr.write_integer_array(m_{m.name}.data(), m_{m.name}.size(), {m.type.array_size})', depth)
+        indent = '\t' * depth
+        out = f'{indent}for (size_t i = 0; i < {m.type.array_size}; i++)\n'
+        # TODO: write a more generic function to write whatever here?
+        out += self.emit_write_integer(f'i < m_{m.name}.size() ? m_{m.name}[i] : 0', depth + 1, self.subscript_type(m.type))
+
+        return out
 
     def emit_write_dynamic_array(self, m, depth = 1):
+        indent = '\t' * depth
         out = self.emit_write_varint(f'm_{m.name}.size()', depth)
-        out += self.emit_stmt_checked(f'wr.write_integer_array(m_{m.name}.data(), m_{m.name}.size(), m_{m.name}.size())', depth)
+        out += f'{indent}for (size_t i = 0; i < m_{m.name}.size(); i++)\n'
+        # TODO: write a more generic function to write whatever here?
+        out += self.emit_write_integer(f'm_{m.name}[i]', depth + 1, self.subscript_type(m.type))
         return out
 
     def emit_assert_that(self, stmt, depth = 1):
         indent = '\t' * depth
         return f'{indent}{self.stdlib_traits.assert_func()}({stmt});\n'
-
-    def emit_write_integer_at(self, offset, value, depth = 1, vtype = None):
-        if vtype:
-            return self.emit_stmt_checked(f'wr.write_integer_at<{vtype}>({offset}, {value})', depth)
-        return self.emit_stmt_checked(f'wr.write_integer_at({offset}, {value})', depth)
-
-    def emit_fixed_member_encoder(self, member, depth = 1):
-        indent = '\t' * depth
-
-        out = f'{indent}// Encode {"tags" if type(member) is TagsBlock else member.name}\n';
-        if self.is_dyn_pointer(member):
-            out += self.emit_write_integer(0, depth, 'uint64_t')
-        elif member.type.is_array:
-            out += self.emit_assert_that(f'p_{member.name}', depth)
-            out += self.emit_write_fixed_array(member, depth)
-        else:
-            out += self.emit_assert_that(f'p_{member.name}', depth)
-            out += self.emit_write_integer(f'm_{member.name}', depth)
-
-        return out + '\n'
 
     def emit_dynamic_member_encoder(self, member, depth = 1):
         indent = '\t' * depth
@@ -170,7 +176,7 @@ class CodeGenerator:
                 if m.type.is_array:
                     out += self.emit_write_dynamic_array(m, depth)
                 else:
-                    out += self.emit_write_integer(f'm_{m.name}', depth)
+                    out += self.emit_write_varint(f'm_{m.name}', depth)
 
                 depth -= 1
                 indent = '\t' * depth
@@ -183,6 +189,57 @@ class CodeGenerator:
 
         return out + '\n'
 
+    def calculate_fixed_part_size(self, what, members):
+        i = 8 if what == 'head' else 0
+
+        for m in members:
+            if not self.is_dyn_pointer(m):
+                size = fixed_type_size(m.type)
+                assert size
+                i += size
+            else:
+                i += 8
+
+        return i
+
+    def emit_determine_dyn_size_for(self, skip, member, n, depth = 1):
+        indent = '\t' * depth
+        out = ''
+        into = f'dyn_offs[{n}]'
+
+        if n > 0:
+            out += f'{indent}{into} = {skip} + dyn_offs[{n - 1}];\n'
+        else:
+            out += f'{indent}{into} = {skip};\n'
+
+        if type(member) is TagsBlock:
+            for m in member.members:
+                out += f'{indent}if ({"p_" + m.name}) {{\n'
+                depth += 1
+                indent = '\t' * depth
+
+                assert m.tag
+
+                out += f'{indent}{into} += bragi::detail::size_of_varint({m.tag.value});\n'
+                if m.type.is_array:
+                    out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
+                    out += f'{indent}{into} += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
+                else:
+                    out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name});\n'
+
+                depth -= 1
+                indent = '\t' * depth
+                out += f'{indent}}}\n'
+
+            out += f'{indent}{into} += bragi::detail::size_of_varint(0);\n'
+        else:
+            assert member.type.is_array
+            out += f'{indent}{into} += bragi::detail::size_of_varint(m_{member.name}.size());\n'
+            out += f'{indent}{into} += {subscript_type_size(member.type)} * m_{member.name}.size();\n'
+
+        return out + '\n'
+
+
     def emit_part_encoder(self, what, members, depth = 1):
         indent = '\t' * depth
 
@@ -191,26 +248,44 @@ class CodeGenerator:
         depth += 1
         indent = '\t' * depth
 
-        if what == 'head':
-            out += f'{indent}// encode ID\n'
-            out += self.emit_write_integer('message_id', depth) + '\n'
+        out += f'{indent}bragi::serializer sr;\n'
 
-        for m in members:
-            out += self.emit_fixed_member_encoder(m, depth)
+        fixed_size = self.calculate_fixed_part_size(what, members)
+        ptrs = [i for i in members if self.is_dyn_pointer(i)]
+
+        if len(ptrs) > 0:
+            out += f'{indent}uint64_t dyn_offs[{len(ptrs)}];\n'
+
+        out += '\n'
+
+        for i, m in enumerate(ptrs):
+            out += self.emit_determine_dyn_size_for(fixed_size, m, i, depth)
+
+        if what == 'head':
+            out += f'{indent}// Encode ID\n'
+            out += self.emit_write_integer('message_id', depth, 'uint64_t') + '\n'
 
         i = 0
         for m in members:
-            if not self.is_dyn_pointer(m):
-                size = fixed_type_size(m.type)
-                assert size
-                i += size
-                continue
+            out += f'{indent}// Encode {"tags" if type(m) is TagsBlock else m.name}\n';
+            if self.is_dyn_pointer(m):
+                if type(m) is not TagsBlock:
+                    out += self.emit_assert_that(f'p_{m.name}', depth)
+                out += self.emit_write_integer(f'dyn_offs[{i}]', depth, 'uint64_t')
+                i += 1
+            elif m.type.is_array:
+                out += self.emit_assert_that(f'p_{m.name}', depth)
+                out += self.emit_write_fixed_array(m, depth)
+            else:
+                out += self.emit_assert_that(f'p_{m.name}', depth)
+                out += self.emit_write_integer(f'm_{m.name}', depth, self.generate_type(m.type))
+            out += '\n'
+
+        for m in members:
+            if not self.is_dyn_pointer(m): continue
 
             out += f'{indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n';
-            out += self.emit_write_integer_at(i, 'wr.index()', depth)
             out += self.emit_dynamic_member_encoder(m, depth)
-
-            i += 8
 
         out += f'{indent}return true;\n'
         depth -= 1
@@ -219,73 +294,113 @@ class CodeGenerator:
 
         return out
 
-    def generate_decoder(self, message):
-        out = '\tbool deserialize_from_array(void *buf, size_t size) {\n'
-        out += '\t\tbragi::internals::reader rd{static_cast<uint8_t *>(buf), size};\n'
-        out += '\t\tif (size < head_size)\n\t\t\treturn false;\n'
+    def emit_read_integer_into(self, to, type, depth = 1):
+        return self.emit_stmt_checked(f'de.read_integer<{type}>(rd, {to})', depth)
 
-        out += '\t\tuint64_t id = rd.deserialize<uint64_t>(0);\n'
-        out += '\t\tif(id != message_id)\n\t\t\treturn false;\n'
+    def emit_read_varint_into(self, to, depth = 1):
+        return self.emit_stmt_checked(f'de.read_varint(rd, {to})', depth)
 
-        i = 8
-        try:
-            for m in message.head.members:
+    def emit_loop_resize_read_into(self, m, size, depth = 1):
+        indent = '\t' * depth
+
+        target_size = size
+
+        if m.type.array_size != -1:
+            target_size = m.type.array_size
+
+        out = f'{indent}m_{m.name}.resize({target_size});\n'
+        out += f'{indent}for (size_t i = 0; i < {target_size}; i++)\n'
+        if target_size != size:
+            depth += 1
+            indent = '\t' * depth
+            out += f'{indent}if (i < {size})\n'
+            out += self.emit_read_integer_into(f'm_{m.name}[i]', self.subscript_type(m.type), depth + 1)
+        else:
+            out += self.emit_read_integer_into(f'm_{m.name}[i]', self.subscript_type(m.type), depth + 1)
+
+        return out
+
+    def emit_decode_dynamic_member(self, m, depth = 1):
+        indent = '\t' * depth
+        out = self.emit_read_integer_into('tmp', 'uint64_t', depth)
+        out += f'{indent}de.push_index(tmp);\n'
+
+        if type(m) is TagsBlock:
+            out += f'{indent}do {{\n'
+            depth += 1
+            indent = '\t' * depth
+            out += f'{indent}uint64_t tmp2;\n'
+            out += self.emit_read_varint_into('tmp', depth)
+            out += f'{indent}switch(tmp) {{\n'
+            depth += 1
+            indent = '\t' * depth
+            out += f'{indent}case 0:\n{indent}\tbreak;\n'
+            for mm in m.members:
+                assert mm.tag
+                out += f'{indent}case {mm.tag.value}:\n'
+                depth += 1
+                indent = '\t' * depth
+
+                if mm.type.is_array:
+                    out += self.emit_read_varint_into('tmp2', depth)
+                    out += self.emit_loop_resize_read_into(mm, 'tmp2', depth)
+                else:
+                    out += self.emit_read_integer_into(f'm_{mm.name}', self.generate_type(mm.type), depth)
+
+                out += f'{indent}break;\n'
+                depth -= 1
+                indent = '\t' * depth
+            out += f'{indent}default:\n'
+            out += self.emit_assert_that('!"Unknown tag!"', depth + 1)
+            depth -= 1
+            indent = '\t' * depth
+            out += f'{indent}}}\n'
+            depth -= 1
+            indent = '\t' * depth
+            out += f'{indent}}} while(tmp);\n'
+        else:
+            out += self.emit_read_varint_into('tmp', depth)
+            out += self.emit_loop_resize_read_into(m, 'tmp', depth)
+
+        out += f'{indent}de.pop_index();\n'
+
+        return out
+
+    def emit_part_decoder(self, what, members, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}template <typename Reader>\n'
+        out += f'{indent}bool decode_{what}(Reader &rd) {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}bragi::deserializer de;\n'
+        out += f'{indent}uint64_t tmp;\n\n'
+
+        if what == 'head':
+            out += f'{indent}// Decode and check ID\n'
+            out += self.emit_read_integer_into('tmp', 'uint64_t', depth)
+            out += self.emit_assert_that('tmp == message_id', depth)
+            out += '\n'
+
+        for m in members:
+            out += f'{indent}// Decode {"tags" if type(m) is TagsBlock else m.name}\n';
+            if self.is_dyn_pointer(m):
+                out += self.emit_decode_dynamic_member(m, depth)
+            else:
                 if m.type.is_array:
-                    out += '\t\t{} = rd.deserialize<{}>({}, {});\n'.format('m_' + m.name, self.generate_type(m.type), i, m.type.array_size)
-                    out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(fixed_type_size(m.type))
+                    assert m.type.array_size != -1
+                    out += self.emit_loop_resize_read_into(m, m.type.array_size, depth)
                 else:
-                    out += '\t\t{} = rd.deserialize<{}>({});\n'.format('m_' + m.name, self.generate_type(m.type), i)
-                    out += '\t\t{} = true;\n'.format('p_' + m.name)
-                    i += int(fixed_type_size(m.type))
-            i = message.head.size
-        except:
-            pass
+                    out += self.emit_read_integer_into(f'm_{m.name}', self.generate_type(m.type), depth)
+            out += '\n'
 
-        try:
-            out += '\t\tsize_t i = {}; // Index into tail\n'.format(message.head.size);
-            out += '\t\twhile (i < size) {\n'
-            out += '\t\t\tsize_t varint_size = 0;\n'
-            out += '\t\t\tuint64_t tag = rd.deserialize<varint>(i, varint_size);\n'
-            out += '\t\t\ti += varint_size;\n'
-            out += '\t\t\tswitch (tag) {\n'
-            for m in message.tail.members:
-                tag_present = False
-                tag = 0
-                optional = False
-                for attr in m.attributes:
-                    if attr.name == 'tag':
-                        tag_present = True
-                        tag = attr.values[0]
-                    elif attr.name == 'optional':
-                        optional = True
+        out += f'{indent}return true;\n'
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n\n'
 
-                assert tag_present # Implement untagged fields in tail later
-
-                out += '\t\t\t\tcase {}:\n'.format(tag)
-                out += '\t\t\t\t\t{} = true;\n'.format('p_' + m.name)
-
-                if m.type.is_array and m.type.array_size > 0:
-                    out += '\t\t\t\t\t{} = rd.deserialize<{}>(i, {});\n'.format('m_' + m.name, self.generate_type(m.type), m.type.array_size)
-                    out += '\t\t\t\t\ti += {};\n'.format(fixed_type_size(m.type))
-                elif m.type.base_type != 'string' and m.type.array_size == 0:
-                    out += '\t\t\t\t\t{} = rd.deserialize<{}>(i);\n'.format('m_' + m.name, self.generate_type(m.type))
-                    out += '\t\t\t\t\ti += {};\n'.format(fixed_type_size(m.type))
-                else:
-                    print('TODO: Encode dynamic width members')
-
-                out += '\t\t\t\t\tbreak;\n'
-
-            out += '\t\t\t\tdefault:\n'
-            out += '\t\t\t\t\t// TODO: Unknown tag, panic\n'
-            out += '\t\t\t\t\treturn false;\n'
-
-            out += '\t\t\t}\n'
-            out += '\t\t}\n'
-        except:
-            pass
-
-        return out + '\t\treturn true;\n\t}\n\n'
+        return out
 
     def generate_message(self, message):
         head = None
@@ -340,11 +455,10 @@ class CodeGenerator:
 
         if message.head:
             out += self.emit_part_encoder('head', message.head.members)
+            out += self.emit_part_decoder('head', message.head.members)
         if message.tail:
             out += self.emit_part_encoder('tail', message.tail.members)
-
-#        out += self.generate_encoder(message)
-#        out += self.generate_decoder(message)
+            out += self.emit_part_decoder('tail', message.tail.members)
 
         out += 'private:\n'
         for m in all_members:
