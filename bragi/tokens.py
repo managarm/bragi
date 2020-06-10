@@ -60,15 +60,13 @@ class Type:
         self.line = line
         self.column = column
 
-        if name != 'string':
-            parts = name.split('[', 1)
-            self.is_array = len(parts) > 1
-            self.base_type = parts[0]
-            self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
-        else:
-            self.is_array = True
-            self.base_type = 'uint8'
-            self.array_size = -1
+        parts = name.split('[', 1)
+        self.is_array = len(parts) > 1
+        self.base_type = parts[0]
+        self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
+
+        if self.base_type == 'string':
+            assert not self.is_array
 
     def __repr__(self):
         return self.base_type + (('[' + str(self.array_size) + ']') if self.is_array else '')
@@ -130,7 +128,7 @@ def fixed_type_size(t):
     return size
 
 def subscript_type_size(t):
-    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8':
+    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8' or t.base_type == 'string':
         return 1
     elif t.base_type == 'int16' or t.base_type == 'uint16':
         return 2

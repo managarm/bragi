@@ -9,10 +9,12 @@ class StdlibTraits:
         return ''
     def vector(self):
         return 'std::vector'
+    def string(self):
+        return 'std::string'
     def assert_func(self):
         return 'assert'
     def includes(self):
-        return '#include <stdint.h>\n#include <stddef.h>\n#include <vector>\n#include <cassert>\n#include <optional>\n'
+        return '#include <stdint.h>\n#include <stddef.h>\n#include <vector>\n#include <cassert>\n#include <optional>\n#include <string>\n'
 
 class FriggTraits:
     def needs_allocator(self):
@@ -23,10 +25,12 @@ class FriggTraits:
         return 'allocator'
     def vector(self):
         return 'frg::vector'
+    def string(self):
+        return 'frg::string'
     def assert_func(self):
         return 'FRG_ASSERT'
     def includes(self):
-        return '#include <stdint.h>\n#include <stddef.h>\n#include <frg/vector.hpp>\n#include <frg/macros.hpp>\n#include <frg/optional.hpp>\n'
+        return '#include <stdint.h>\n#include <stddef.h>\n#include <frg/vector.hpp>\n#include <frg/macros.hpp>\n#include <frg/optional.hpp>\n#include <frg/string.hpp>\n'
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -104,14 +108,19 @@ class CodeGenerator:
         if t.is_array:
             return '{}<{}{}>'.format(self.stdlib_traits.vector(), base_type_name,
                     ', Allocator' if self.stdlib_traits.needs_allocator() else '')
+        if t.base_type == 'string':
+            return '{}{}'.format(self.stdlib_traits.string(),
+                    '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
         else:
             return base_type_name
 
     def subscript_type(self, t):
+        if t.base_type == 'string':
+            return 'char'
         return self.generate_type(Type(t.line, t.column, t.base_type))
 
     def is_dyn_pointer(self, m):
-        return type(m) is TagsBlock or (m.type.is_array and m.type.array_size == -1)
+        return type(m) is TagsBlock or ((m.type.is_array and m.type.array_size == -1) or m.type.base_type == 'string')
 
     def count_dynamic(self, members):
         i = 0
@@ -173,7 +182,7 @@ class CodeGenerator:
                 assert m.tag
 
                 out += self.emit_write_varint(m.tag.value, depth)
-                if m.type.is_array:
+                if m.type.is_array or m.type.base_type == 'string':
                     out += self.emit_write_dynamic_array(m, depth)
                 else:
                     out += self.emit_write_varint(f'm_{m.name}', depth)
@@ -184,7 +193,7 @@ class CodeGenerator:
 
             out += self.emit_write_varint(0, depth) # terminator tag
         else:
-            assert member.type.is_array
+            assert member.type.is_array or member.type.base_type == 'string'
             out += self.emit_write_dynamic_array(member, depth)
 
         return out + '\n'
@@ -202,7 +211,7 @@ class CodeGenerator:
 
         return i
 
-    def emit_determine_dyn_size_for(self, skip, prev, n, depth = 1):
+    def emit_determine_dyn_off_for(self, skip, prev, n, depth = 1):
         indent = '\t' * depth
         out = ''
         into = f'dyn_offs[{n}]'
@@ -236,7 +245,7 @@ class CodeGenerator:
 
             out += f'{indent}{into} += bragi::detail::size_of_varint(0);\n'
         else:
-            assert prev.type.is_array
+            assert prev.type.is_array or prev.type.base_type == 'string'
             out += f'{indent}{into} += bragi::detail::size_of_varint(m_{prev.name}.size());\n'
             out += f'{indent}{into} += {subscript_type_size(prev.type)} * m_{prev.name}.size();\n'
 
@@ -262,7 +271,7 @@ class CodeGenerator:
         out += '\n'
 
         for i, m in enumerate(ptrs):
-            out += self.emit_determine_dyn_size_for(fixed_size, ptrs[i - 1] if i > 0 else None, i, depth)
+            out += self.emit_determine_dyn_off_for(fixed_size, ptrs[i - 1] if i > 0 else None, i, depth)
 
         if what == 'head':
             out += f'{indent}// Encode ID\n'
@@ -312,7 +321,7 @@ class CodeGenerator:
 
         target_size = size
 
-        if m.type.array_size != -1:
+        if m.type.array_size != -1 and m.type.is_array:
             target_size = m.type.array_size
 
         out = f'{indent}m_{m.name}.resize({target_size});\n'
@@ -321,9 +330,7 @@ class CodeGenerator:
             depth += 1
             indent = '\t' * depth
             out += f'{indent}if (i < {size})\n'
-            out += self.emit_read_integer_into(f'm_{m.name}[i]', self.subscript_type(m.type), depth + 1)
-        else:
-            out += self.emit_read_integer_into(f'm_{m.name}[i]', self.subscript_type(m.type), depth + 1)
+        out += self.emit_read_integer_into(f'*(m_{m.name}.data() + i)', self.subscript_type(m.type), depth + 1)
 
         return out
 
@@ -348,12 +355,12 @@ class CodeGenerator:
                 depth += 1
                 indent = '\t' * depth
 
-                out += self.emit_set_member(mm, True, depth)
-                if mm.type.is_array:
+                if mm.type.is_array or mm.type.base_type == 'string':
                     out += self.emit_read_varint_into('tmp2', depth)
                     out += self.emit_loop_resize_read_into(mm, 'tmp2', depth)
                 else:
                     out += self.emit_read_integer_into(f'm_{mm.name}', self.generate_type(mm.type), depth)
+                out += self.emit_set_member(mm, True, depth)
 
                 out += f'{indent}break;\n'
                 depth -= 1
@@ -367,9 +374,9 @@ class CodeGenerator:
             indent = '\t' * depth
             out += f'{indent}}} while(tmp);\n'
         else:
-            out += self.emit_set_member(m, True, depth)
             out += self.emit_read_varint_into('tmp', depth)
             out += self.emit_loop_resize_read_into(m, 'tmp', depth)
+            out += self.emit_set_member(m, True, depth)
 
         out += f'{indent}de.pop_index();\n'
 
@@ -397,12 +404,12 @@ class CodeGenerator:
             if self.is_dyn_pointer(m):
                 out += self.emit_decode_dynamic_member(m, depth)
             else:
-                out += self.emit_set_member(m, True, depth)
                 if m.type.is_array:
-                    assert m.type.array_size != -1
+                    assert m.type.array_size > 0
                     out += self.emit_loop_resize_read_into(m, m.type.array_size, depth)
                 else:
                     out += self.emit_read_integer_into(f'm_{m.name}', self.generate_type(m.type), depth)
+                out += self.emit_set_member(m, True, depth)
             out += '\n'
 
         out += f'{indent}return true;\n'

@@ -170,6 +170,7 @@ private:
 	size_t n_index_ = 0;
 
 	size_t advance(size_t n) {
+		assert(n);
 		size_t i = index_stack_[n_index_];
 		index_stack_[n_index_] += n;
 		return i;
