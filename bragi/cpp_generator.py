@@ -202,18 +202,21 @@ class CodeGenerator:
 
         return i
 
-    def emit_determine_dyn_size_for(self, skip, member, n, depth = 1):
+    def emit_determine_dyn_size_for(self, skip, prev, n, depth = 1):
         indent = '\t' * depth
         out = ''
         into = f'dyn_offs[{n}]'
 
         if n > 0:
-            out += f'{indent}{into} = {skip} + dyn_offs[{n - 1}];\n'
+            out += f'{indent}{into} = dyn_offs[{n - 1}];\n'
         else:
             out += f'{indent}{into} = {skip};\n'
 
-        if type(member) is TagsBlock:
-            for m in member.members:
+        if not prev:
+            return out + '\n'
+
+        if type(prev) is TagsBlock:
+            for m in prev.members:
                 out += f'{indent}if ({"p_" + m.name}) {{\n'
                 depth += 1
                 indent = '\t' * depth
@@ -233,9 +236,9 @@ class CodeGenerator:
 
             out += f'{indent}{into} += bragi::detail::size_of_varint(0);\n'
         else:
-            assert member.type.is_array
-            out += f'{indent}{into} += bragi::detail::size_of_varint(m_{member.name}.size());\n'
-            out += f'{indent}{into} += {subscript_type_size(member.type)} * m_{member.name}.size();\n'
+            assert prev.type.is_array
+            out += f'{indent}{into} += bragi::detail::size_of_varint(m_{prev.name}.size());\n'
+            out += f'{indent}{into} += {subscript_type_size(prev.type)} * m_{prev.name}.size();\n'
 
         return out + '\n'
 
@@ -259,7 +262,7 @@ class CodeGenerator:
         out += '\n'
 
         for i, m in enumerate(ptrs):
-            out += self.emit_determine_dyn_size_for(fixed_size, m, i, depth)
+            out += self.emit_determine_dyn_size_for(fixed_size, ptrs[i - 1] if i > 0 else None, i, depth)
 
         if what == 'head':
             out += f'{indent}// Encode ID\n'
