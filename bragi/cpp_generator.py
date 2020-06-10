@@ -198,8 +198,25 @@ class CodeGenerator:
 
         return out + '\n'
 
-    def calculate_fixed_part_size(self, what, members):
+    def determine_pointer_size(self, what, size):
+        if what != 'head':
+            return 8
+
+        if size < 256:
+            return 1
+        elif size < 65536:
+            return 2
+        elif size < 4294967296:
+            return 4
+        elif size < 18446744073709551616:
+            return 8
+        else:
+            return None
+
+    def calculate_fixed_part_size(self, what, members, parent):
         i = 8 if what == 'head' else 0
+
+        ptr_size = self.determine_pointer_size(what, parent.head.size if what == 'head' else None)
 
         for m in members:
             if not self.is_dyn_pointer(m):
@@ -207,7 +224,7 @@ class CodeGenerator:
                 assert size
                 i += size
             else:
-                i += 8
+                i += ptr_size
 
         return i
 
@@ -251,8 +268,14 @@ class CodeGenerator:
 
         return out + '\n'
 
+    def determine_pointer_type(self, what, size):
+        size = self.determine_pointer_size(what, size)
+        if not size:
+            return None
 
-    def emit_part_encoder(self, what, members, depth = 1):
+        return f'uint{size * 8}_t'
+
+    def emit_part_encoder(self, what, parent, members, depth = 1):
         indent = '\t' * depth
 
         out = f'{indent}template <typename Writer>\n'
@@ -262,11 +285,13 @@ class CodeGenerator:
 
         out += f'{indent}bragi::serializer sr;\n'
 
-        fixed_size = self.calculate_fixed_part_size(what, members)
+        fixed_size = self.calculate_fixed_part_size(what, members, parent)
         ptrs = [i for i in members if self.is_dyn_pointer(i)]
 
+        ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
+
         if len(ptrs) > 0:
-            out += f'{indent}uint64_t dyn_offs[{len(ptrs)}];\n'
+            out += f'{indent}{ptr_type} dyn_offs[{len(ptrs)}];\n'
 
         out += '\n'
 
@@ -283,7 +308,7 @@ class CodeGenerator:
             if self.is_dyn_pointer(m):
                 if type(m) is not TagsBlock:
                     out += self.emit_assert_that(f'p_{m.name}', depth)
-                out += self.emit_write_integer(f'dyn_offs[{i}]', depth, 'uint64_t')
+                out += self.emit_write_integer(f'dyn_offs[{i}]', depth, ptr_type)
                 i += 1
             elif m.type.is_array:
                 out += self.emit_assert_that(f'p_{m.name}', depth)
@@ -334,10 +359,10 @@ class CodeGenerator:
 
         return out
 
-    def emit_decode_dynamic_member(self, m, depth = 1):
+    def emit_decode_dynamic_member(self, m, ptr_type, depth = 1):
         indent = '\t' * depth
-        out = self.emit_read_integer_into('tmp', 'uint64_t', depth)
-        out += f'{indent}de.push_index(tmp);\n'
+        out = self.emit_read_integer_into('ptr', ptr_type, depth)
+        out += f'{indent}de.push_index(ptr);\n'
 
         if type(m) is TagsBlock:
             out += f'{indent}do {{\n'
@@ -384,7 +409,7 @@ class CodeGenerator:
 
         return out
 
-    def emit_part_decoder(self, what, members, depth = 1):
+    def emit_part_decoder(self, what, parent, members, depth = 1):
         indent = '\t' * depth
 
         out = f'{indent}template <typename Reader>\n'
@@ -393,7 +418,11 @@ class CodeGenerator:
         indent = '\t' * depth
 
         out += f'{indent}bragi::deserializer de;\n'
-        out += f'{indent}uint64_t tmp;\n\n'
+        out += f'{indent}uint64_t tmp;\n'
+
+        ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
+
+        out += f'{indent}{ptr_type} ptr;\n'
 
         if what == 'head':
             out += f'{indent}// Decode and check ID\n'
@@ -404,7 +433,7 @@ class CodeGenerator:
         for m in members:
             out += f'{indent}// Decode {"tags" if type(m) is TagsBlock else m.name}\n';
             if self.is_dyn_pointer(m):
-                out += self.emit_decode_dynamic_member(m, depth)
+                out += self.emit_decode_dynamic_member(m, ptr_type, depth)
             else:
                 if m.type.is_array:
                     assert m.type.array_size > 0
@@ -473,11 +502,11 @@ class CodeGenerator:
             out += '\t}\n\n'
 
         if message.head:
-            out += self.emit_part_encoder('head', message.head.members)
-            out += self.emit_part_decoder('head', message.head.members)
+            out += self.emit_part_encoder('head', message, message.head.members)
+            out += self.emit_part_decoder('head', message, message.head.members)
         if message.tail:
-            out += self.emit_part_encoder('tail', message.tail.members)
-            out += self.emit_part_decoder('tail', message.tail.members)
+            out += self.emit_part_encoder('tail', message, message.tail.members)
+            out += self.emit_part_decoder('tail', message, message.tail.members)
 
         out += 'private:\n'
         for m in all_members:
