@@ -19,14 +19,13 @@ namespace detail {
 	}
 
 	constexpr inline size_t size_of_varint(uint64_t val) {
-		return 8;
-		/*int data_bits = 64 - __builtin_clzll(val | 1);
+		int data_bits = 64 - __builtin_clzll(val | 1);
 		int bytes = 1 + (data_bits - 1) / 7;
 
 		if(data_bits > 56)
 			return 9;
 
-		return bytes;*/
+		return bytes;
 	}
 } // namespace detail
 
@@ -77,8 +76,7 @@ struct serializer {
 
 	template <typename Writer>
 	bool write_varint(Writer &wr, uint64_t val) {
-		return write_integer<uint64_t>(wr, val);
-		/*uint8_t buf[9];
+		uint8_t buf[9];
 		uint8_t *ptr = buf;
 
 		// Make sure that we fill at least 1 byte if data == 0
@@ -96,7 +94,7 @@ struct serializer {
 			*ptr++ = (val >> (i * 8)) & 0xFF;
 
 		size_t n = ptr - buf;
-		return wr.write(advance(n), buf, n);*/
+		return wr.write(advance(n), buf, n);
 	}
 
 private:
@@ -129,8 +127,7 @@ struct deserializer {
 
 	template <typename Reader>
 	bool read_varint(Reader &rd, uint64_t &out) {
-		return read_integer<uint64_t>(rd, out);
-		/*uint8_t d[9];
+		uint8_t d[9];
 
 		if (!rd.read(advance(1), d, 1))
 			return false;
@@ -153,7 +150,7 @@ struct deserializer {
 		ret |= static_cast<uint64_t>(d[0]) >> n_bytes;
 
 		out = ret;
-		return true;*/
+		return true;
 	}
 
 	void push_index(size_t index) {

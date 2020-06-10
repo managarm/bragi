@@ -359,7 +359,9 @@ class CodeGenerator:
                     out += self.emit_read_varint_into('tmp2', depth)
                     out += self.emit_loop_resize_read_into(mm, 'tmp2', depth)
                 else:
-                    out += self.emit_read_integer_into(f'm_{mm.name}', self.generate_type(mm.type), depth)
+                    # TODO: is this correct w.r.t. signed numbers?
+                    out += self.emit_read_varint_into('tmp2', depth)
+                    out += f'{indent}m_{mm.name} = tmp2;\n'
                 out += self.emit_set_member(mm, True, depth)
 
                 out += f'{indent}break;\n'
