@@ -303,6 +303,10 @@ class CodeGenerator:
     def emit_read_varint_into(self, to, depth = 1):
         return self.emit_stmt_checked(f'de.read_varint(rd, {to})', depth)
 
+    def emit_set_member(self, member, enabled, depth = 1):
+        indent = '\t' * depth
+        return f'{indent}p_{member.name} = {"true" if enabled else "false"};\n'
+
     def emit_loop_resize_read_into(self, m, size, depth = 1):
         indent = '\t' * depth
 
@@ -344,6 +348,7 @@ class CodeGenerator:
                 depth += 1
                 indent = '\t' * depth
 
+                out += self.emit_set_member(mm, True, depth)
                 if mm.type.is_array:
                     out += self.emit_read_varint_into('tmp2', depth)
                     out += self.emit_loop_resize_read_into(mm, 'tmp2', depth)
@@ -362,6 +367,7 @@ class CodeGenerator:
             indent = '\t' * depth
             out += f'{indent}}} while(tmp);\n'
         else:
+            out += self.emit_set_member(m, True, depth)
             out += self.emit_read_varint_into('tmp', depth)
             out += self.emit_loop_resize_read_into(m, 'tmp', depth)
 
@@ -391,6 +397,7 @@ class CodeGenerator:
             if self.is_dyn_pointer(m):
                 out += self.emit_decode_dynamic_member(m, depth)
             else:
+                out += self.emit_set_member(m, True, depth)
                 if m.type.is_array:
                     assert m.type.array_size != -1
                     out += self.emit_loop_resize_read_into(m, m.type.array_size, depth)
