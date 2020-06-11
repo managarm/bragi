@@ -9,7 +9,7 @@ import argparse
 from bragi.cpp_generator import CodeGenerator
 from bragi.tokens import *
 
-grammar = '''
+grammar = r'''
 start: (message | enum | consts | ns)+
 
 tag: "tag" "(" INT ")"
@@ -36,9 +36,15 @@ NAME: CNAME
 %import common.INT
 %import common.CNAME
 %import common.ESCAPED_STRING
+%import common.NEWLINE
 
 %import common.WS
 %ignore WS
+
+COMMENT: "//" /(.)+/ NEWLINE
+       | "/*" /(.|\n)+/ "*/"
+
+%ignore COMMENT
 '''
 
 flatten = lambda l: [item for sublist in l for item in sublist]
@@ -131,6 +137,10 @@ def token_name_to_human_readable(token):
         return '"message"'
     elif token == 'ENUM':
         return '"enum"'
+    elif token == 'TAGS':
+        return 'a tags block'
+    elif token == 'TAG':
+        return 'a tag'
     else:
         return token
 
