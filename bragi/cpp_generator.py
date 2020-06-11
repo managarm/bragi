@@ -39,7 +39,7 @@ class CodeGenerator:
         self.unit = unit
         self.stdlib_traits = None
 
-        if stdlib == 'libc++':
+        if stdlib == 'stdc++':
             self.stdlib_traits = StdlibTraits()
         elif stdlib == 'frigg':
             self.stdlib_traits = FriggTraits()

@@ -245,7 +245,7 @@ class CompilationUnit:
 parser = argparse.ArgumentParser(prog = 'bragi', description = 'Bragi IDL to C++ compiler')
 parser.add_argument('input', nargs=1, help='input file')
 parser.add_argument('output', nargs=1, help='output file')
-parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'libc++'], default='libc++')
+parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
 args = parser.parse_args()
 
 source = args.input[0]
