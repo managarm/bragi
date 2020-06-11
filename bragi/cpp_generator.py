@@ -116,7 +116,7 @@ class CodeGenerator:
 
             i += 1
 
-        return out + f'}} // enum class {enum.name}\n\n'
+        return out + f'}}; // enum class {enum.name}\n\n'
 
     def generate_type(self, t):
         base_type_name = t.base_type
@@ -526,7 +526,7 @@ class CodeGenerator:
             depth += 1
             indent = '\t' * depth
 
-            out += f'{indent}std::string str{{{parent.head.size}, \'\\0\'}};\n'
+            out += f'{indent}std::string str(size_t({parent.head.size}), \'\\0\');\n'
             out += f'{indent}bragi::limited_writer wr{{str.data(), str.size()}};\n\n'
             out += self.emit_assert_that('encode_head(wr)', depth) + '\n'
             out += f'{indent}return str;\n'
@@ -540,7 +540,7 @@ class CodeGenerator:
     # Protobuf compatibilty code
     def emit_parse_from_array(self, parent, depth = 1):
         indent = '\t' * depth
-        out = f'{indent}bool ParseFromArray(const char *data, size_t size) {{\n'
+        out = f'{indent}bool ParseFromArray(const void *data, size_t size) {{\n'
         depth += 1
         indent = '\t' * depth
 

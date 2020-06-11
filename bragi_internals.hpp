@@ -30,8 +30,8 @@ namespace detail {
 } // namespace detail
 
 struct limited_writer {
-	limited_writer(uint8_t *buf, size_t size)
-	: buf_{buf}, size_{size} {}
+	limited_writer(void *buf, size_t size)
+	: buf_{static_cast<uint8_t *>(buf)}, size_{size} {}
 
 	bool write(size_t offset, const void *data, size_t size) {
 		if (offset + size > size_)
@@ -48,8 +48,8 @@ private:
 };
 
 struct limited_reader {
-	limited_reader(uint8_t *buf, size_t size)
-	: buf_{buf}, size_{size} {}
+	limited_reader(const void *buf, size_t size)
+	: buf_{static_cast<const uint8_t *>(buf)}, size_{size} {}
 
 	bool read(size_t offset, void *data, size_t size) {
 		if (offset + size > size_)
@@ -61,7 +61,7 @@ struct limited_reader {
 	}
 
 private:
-	uint8_t *buf_;
+	const uint8_t *buf_;
 	size_t size_;
 };
 
