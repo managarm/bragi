@@ -187,7 +187,7 @@ class CodeGenerator:
         return out
 
     def emit_write_varint(self, value, depth = 1):
-        return self.emit_stmt_checked(f'sr.write_varint(wr, {value})', depth)
+        return self.emit_stmt_checked(f'sr.write_varint(wr, static_cast<uint64_t>({value}))', depth)
 
     def emit_write_integer(self, value, depth = 1, type = None):
         assert type
@@ -583,7 +583,7 @@ class CodeGenerator:
         out += f'\t{message.name}({self.stdlib_traits.allocator_argument()})\n\t: '
 
         for i, m in enumerate(all_members):
-            alloc = self.stdlib_traits.allocator_parameter() if m.type.is_array else ''
+            alloc = self.stdlib_traits.allocator_parameter() if (m.type.is_array or m.type.base_type == 'string') else ''
             out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
 
             if i < len(all_members) - 1:
