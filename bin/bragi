@@ -10,7 +10,7 @@ from bragi.cpp_generator import CodeGenerator
 from bragi.tokens import *
 
 grammar = '''
-start: (message | enum | consts)+
+start: (message | enum | consts | ns)+
 
 tag: "tag" "(" INT ")"
 attributes: tag?
@@ -18,6 +18,7 @@ attributes: tag?
 message: "message" NAME INT message_block
 enum: "enum" NAME enum_block
 consts: "consts" NAME TYPE_NAME enum_block
+ns: "namespace" ESCAPED_STRING ";"
 
 head_section: "head" "(" INT ")" ":" message_member+
 tail_section: "tail" ":" message_member+
@@ -90,6 +91,10 @@ class IdlTransformer(Transformer):
 
     def enum_block(self, items):
         return items
+
+    @v_args(meta = True)
+    def ns(self, items, meta):
+        return NamespaceTag(meta.line, meta.column, items[0][1:-1])
 
 def token_name_to_human_readable(token):
     if token == 'NAME':
@@ -208,7 +213,7 @@ class CompilationUnit:
                 self.report_message(m, 'error',
                     'tagged member outside of tags block', '')
 
-            member_size = fixed_type_size(m.type)
+            member_size = fixed_type_size(self, m.type)
 
             return member_size
 
@@ -233,7 +238,7 @@ class CompilationUnit:
                 self.verify_enum(i)
             elif type(i) is Message:
                 self.verify_message(i)
-            else:
+            elif type(i) is not NamespaceTag:
                 self.report_message(i, 'error',
                         'unexpected token in top level', '')
 
@@ -253,6 +258,8 @@ with open(source, "r") as f:
     unit.process()
     unit.verify()
 
-    generator = CodeGenerator(stdlib = lib)
-    for i in unit.tokens:
-        print(generator.generate(i))
+    generator = CodeGenerator(unit, stdlib = lib)
+    with open(output, "w") as o:
+        o.write(generator.generate())
+#    for i in unit.tokens:
+#        print(generator.generate(i))

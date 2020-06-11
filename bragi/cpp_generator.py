@@ -35,7 +35,8 @@ class FriggTraits:
 flatten = lambda l: [item for sublist in l for item in sublist]
 
 class CodeGenerator:
-    def __init__(self, stdlib):
+    def __init__(self, unit, stdlib):
+        self.unit = unit
         self.stdlib_traits = None
 
         if stdlib == 'libc++':
@@ -45,16 +46,42 @@ class CodeGenerator:
         else:
             raise AttributeError('invalid standard library')
 
-    def generate(self, thing):
-        header = self.stdlib_traits.includes()
-        header += '#include "bragi_internals.hpp"\n\n'
+        self.current_ns = None
 
-        if type(thing) == Enum and thing.mode == "enum":
-            return header + self.generate_enum(thing)
-        if type(thing) == Enum and thing.mode == "consts":
-            return header + self.generate_consts(thing)
-        if type(thing) == Message:
-            return header + self.generate_message(thing)
+    def generate(self):
+        out = self.stdlib_traits.includes()
+        out += '#include "bragi_internals.hpp"\n\n'
+
+        for thing in self.unit.tokens:
+            if type(thing) == NamespaceTag:
+                out += self.switch_ns(thing)
+            if type(thing) == Enum and thing.mode == "enum":
+                out += self.generate_enum(thing)
+            if type(thing) == Enum and thing.mode == "consts":
+                out += self.generate_consts(thing)
+            if type(thing) == Message:
+                out += self.generate_message(thing)
+
+        out += self.finalize_ns()
+
+        return out
+
+    def switch_ns(self, ns):
+        out = ''
+
+        if self.current_ns != None:
+            out += self.finalize_ns()
+
+        out += f'namespace {ns.name} {{\n\n'
+
+        self.current_ns = ns
+        return out
+
+    def finalize_ns(self):
+        if self.current_ns != None:
+            return f'}} // namespace {self.current_ns.name}\n\n'
+
+        return ''
 
     def generate_consts(self, enum):
         out = f'namespace {enum.name} {{\n'
@@ -70,10 +97,10 @@ class CodeGenerator:
 
             i += 1
 
-        return out + f'}} // namespace {enum.name}\n'
+        return out + f'}} // namespace {enum.name}\n\n'
 
     def generate_enum(self, enum):
-        out = f'enum class {enum.name} {{\n'
+        out = f'enum class {enum.name} : int32_t {{\n'
         i = 0
 
         for m in enum.members:
@@ -84,7 +111,7 @@ class CodeGenerator:
 
             i += 1
 
-        return out + f'}} // enum class {enum.name}\n'
+        return out + f'}} // enum class {enum.name}\n\n'
 
     def generate_type(self, t):
         base_type_name = t.base_type
@@ -105,6 +132,16 @@ class CodeGenerator:
             base_type_name = 'int64_t'
         elif t.base_type == 'uint64':
             base_type_name = 'uint64_t'
+        else:
+            for thing in self.unit.tokens:
+                if thing.name != t.base_type:
+                    continue
+
+                if type(thing) is Enum and thing.mode == 'consts':
+                    base_type_name = self.generate_type(thing.type)
+                elif type(thing) is Enum and thing.mode == 'enum':
+                    base_type_name = thing.name
+
         if t.is_array:
             return '{}<{}{}>'.format(self.stdlib_traits.vector(), base_type_name,
                     ', Allocator' if self.stdlib_traits.needs_allocator() else '')
@@ -118,6 +155,9 @@ class CodeGenerator:
         if t.base_type == 'string':
             return 'char'
         return self.generate_type(Type(t.line, t.column, t.base_type))
+
+    def is_simple_integer(self, t):
+        return t in ['char', 'int8_t', 'uint8_t', 'int16_t', 'uint16_t', 'int32_t', 'uint32_t', 'int64_t', 'uint64_t']
 
     def is_dyn_pointer(self, m):
         return type(m) is TagsBlock or ((m.type.is_array and m.type.array_size == -1) or m.type.base_type == 'string')
@@ -144,10 +184,12 @@ class CodeGenerator:
     def emit_write_varint(self, value, depth = 1):
         return self.emit_stmt_checked(f'sr.write_varint(wr, {value})', depth)
 
-    def emit_write_integer(self, value, depth = 1, vtype = None):
-        if vtype:
-            return self.emit_stmt_checked(f'sr.template write_integer<{vtype}>(wr, {value})', depth)
-        return self.emit_stmt_checked(f'sr.write_integer(wr, {value})', depth)
+    def emit_write_integer(self, value, depth = 1, type = None):
+        assert type
+        if self.is_simple_integer(type):
+            return self.emit_stmt_checked(f'sr.template write_integer<{type}>(wr, {value})', depth)
+        else: # this is an enum, explicitly cast to underlying number type
+            return self.emit_stmt_checked(f'sr.template write_integer<int32_t>(wr, static_cast<int32_t>({value}))', depth)
 
     def emit_write_fixed_array(self, m, depth = 1):
         indent = '\t' * depth
@@ -220,7 +262,7 @@ class CodeGenerator:
 
         for m in members:
             if not self.is_dyn_pointer(m):
-                size = fixed_type_size(m.type)
+                size = fixed_type_size(self.unit, m.type)
                 assert size
                 i += size
             else:
@@ -332,7 +374,13 @@ class CodeGenerator:
         return out
 
     def emit_read_integer_into(self, to, type, depth = 1):
-        return self.emit_stmt_checked(f'de.read_integer<{type}>(rd, {to})', depth)
+        if self.is_simple_integer(type):
+            return self.emit_stmt_checked(f'de.read_integer<{type}>(rd, {to})', depth)
+        else: # this is an enum, read into an integer and cast to enum type
+            indent = '\t' * depth
+            out = self.emit_stmt_checked(f'de.read_integer<int32_t>(rd, enum_tmp)', depth)
+            out += f'{indent}{to} = static_cast<{type}>(enum_tmp);\n'
+            return out
 
     def emit_read_varint_into(self, to, depth = 1):
         return self.emit_stmt_checked(f'de.read_varint(rd, {to})', depth)
@@ -386,7 +434,7 @@ class CodeGenerator:
                 else:
                     # TODO: is this correct w.r.t. signed numbers?
                     out += self.emit_read_varint_into('tmp2', depth)
-                    out += f'{indent}m_{mm.name} = tmp2;\n'
+                    out += f'{indent}m_{mm.name} = static_cast<{self.generate_type(mm.type)}>(tmp2);\n'
                 out += self.emit_set_member(mm, True, depth)
 
                 out += f'{indent}break;\n'
@@ -419,6 +467,7 @@ class CodeGenerator:
 
         out += f'{indent}bragi::deserializer de;\n'
         out += f'{indent}uint64_t tmp;\n'
+        out += f'{indent}int32_t enum_tmp;\n'
 
         ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
 
@@ -513,4 +562,4 @@ class CodeGenerator:
             out += '\t{} m_{}; bool p_{};\n'.format(self.generate_type(m.type), m.name,
                     m.name)
 
-        return out + '};\n'
+        return out + f'}}; // struct {message.name}\n\n'

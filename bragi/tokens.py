@@ -107,7 +107,13 @@ class EofToken:
         self.line = line
         self.column = column
 
-def fixed_type_size(t):
+class NamespaceTag:
+    def __init__(self, line, column, name):
+        self.line = line
+        self.column = column
+        self.name = name
+
+def fixed_type_size(unit, t):
     size = None
 
     if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8':
@@ -118,6 +124,12 @@ def fixed_type_size(t):
         size = 4
     elif t.base_type == 'int64' or t.base_type == 'uint64':
         size = 8
+    else:
+        for thing in unit.tokens:
+            if type(thing) is Enum and thing.mode == 'consts':
+                size = fixed_type_size(unit, thing.type)
+            elif type(thing) is Enum and thing.mode == 'enum':
+                size = 4 # int
 
     if t.is_array:
         if t.array_size > 0:
