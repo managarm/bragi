@@ -14,7 +14,7 @@ class StdlibTraits:
     def assert_func(self):
         return 'assert'
     def includes(self):
-        return '#include <stdint.h>\n#include <stddef.h>\n#include <vector>\n#include <cassert>\n#include <optional>\n#include <string>\n'
+        return ['<stdint.h>', '<stddef.h>', '<vector>', '<cassert>', '<optional>', '<string>']
 
 class FriggTraits:
     def needs_allocator(self):
@@ -30,13 +30,14 @@ class FriggTraits:
     def assert_func(self):
         return 'FRG_ASSERT'
     def includes(self):
-        return '#include <stdint.h>\n#include <stddef.h>\n#include <frg/vector.hpp>\n#include <frg/macros.hpp>\n#include <frg/optional.hpp>\n#include <frg/string.hpp>\n'
+        return ['<stdint.h>', '<stddef.h>', '<frg/vector.hpp>', '<frg/macros.hpp>', '<frg/optional.hpp>', '<frg/string.hpp>']
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
 class CodeGenerator:
-    def __init__(self, unit, stdlib):
+    def __init__(self, unit, stdlib, protobuf_compat = False):
         self.unit = unit
+        self.protobuf_compat = protobuf_compat
         self.stdlib_traits = None
 
         if stdlib == 'stdc++':
@@ -49,7 +50,11 @@ class CodeGenerator:
         self.current_ns = None
 
     def generate(self):
-        out = self.stdlib_traits.includes()
+        out = ''
+
+        for i in self.stdlib_traits.includes():
+            out += f'#include {i}\n'
+
         out += '#include "bragi_internals.hpp"\n\n'
 
         for thing in self.unit.tokens:
@@ -499,6 +504,55 @@ class CodeGenerator:
 
         return out
 
+    # Protobuf compatibilty code
+    def emit_serialize_as_string(self, parent, depth = 1):
+        indent = '\t' * depth
+        out = ''
+
+        if type(self.stdlib_traits) is FriggTraits:
+            out = f'{indent}bool SerializeToString(frg::string<Allocator> *str) {{\n'
+            depth += 1
+            indent = '\t' * depth
+
+            out += f'{indent}str->resize({parent.head.size});\n'
+            out += f'{indent}bragi::limited_writer wr{{str->data(), str->size()}};\n\n'
+            out += f'{indent}return encode_head(wr);\n'
+            depth -= 1
+            indent = '\t' * depth
+
+            out += f'{indent}}}\n\n'
+        else:
+            out = f'{indent}std::string SerializeAsString() {{\n'
+            depth += 1
+            indent = '\t' * depth
+
+            out += f'{indent}std::string str{{{parent.head.size}, \'\\0\'}};\n'
+            out += f'{indent}bragi::limited_writer wr{{str.data(), str.size()}};\n\n'
+            out += self.emit_assert_that('encode_head(wr)', depth) + '\n'
+            out += f'{indent}return str;\n'
+            depth -= 1
+            indent = '\t' * depth
+
+            out += f'{indent}}}\n\n'
+
+        return out
+
+    # Protobuf compatibilty code
+    def emit_parse_from_array(self, parent, depth = 1):
+        indent = '\t' * depth
+        out = f'{indent}bool ParseFromArray(const char *data, size_t size) {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}bragi::limited_reader rd{{data, size}};\n\n'
+        out += f'{indent}return decode_head(rd);\n'
+        depth -= 1
+        indent = '\t' * depth
+
+        out += f'{indent}}}\n\n'
+
+        return out
+
     def generate_message(self, message):
         head = None
         tail = None
@@ -556,6 +610,10 @@ class CodeGenerator:
         if message.tail:
             out += self.emit_part_encoder('tail', message, message.tail.members)
             out += self.emit_part_decoder('tail', message, message.tail.members)
+
+        if self.protobuf_compat:
+            out += self.emit_serialize_as_string(message)
+            out += self.emit_parse_from_array(message)
 
         out += 'private:\n'
         for m in all_members:

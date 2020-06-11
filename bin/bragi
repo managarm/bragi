@@ -246,6 +246,7 @@ parser = argparse.ArgumentParser(prog = 'bragi', description = 'Bragi IDL to C++
 parser.add_argument('input', nargs=1, help='input file')
 parser.add_argument('output', nargs=1, help='output file')
 parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
+parser.add_argument('--protobuf', help='Generate protobuf compatibilty methods (SerializeAsString/ParseFromArray)', action='store_true')
 args = parser.parse_args()
 
 source = args.input[0]
@@ -258,8 +259,6 @@ with open(source, "r") as f:
     unit.process()
     unit.verify()
 
-    generator = CodeGenerator(unit, stdlib = lib)
+    generator = CodeGenerator(unit, lib, protobuf_compat = args.protobuf)
     with open(output, "w") as o:
         o.write(generator.generate())
-#    for i in unit.tokens:
-#        print(generator.generate(i))
