@@ -68,7 +68,7 @@ private:
 struct serializer {
 	template <typename T, typename Writer>
 	bool write_integer(Writer &wr, T val) {
-#if __ENDIANNESS__ != __LITTLE_ENDIAN__
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 		val = detail::bswap(val);
 #endif
 		return wr.write(advance(sizeof(T)), &val, sizeof(T));
@@ -117,7 +117,7 @@ struct deserializer {
 		if (!rd.read(advance(sizeof(T)), &val, sizeof(T)))
 			return false;
 
-#if __ENDIANNESS__ != __LITTLE_ENDIAN__
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
 		val = detail::bswap(val);
 #endif
 
@@ -154,7 +154,6 @@ struct deserializer {
 	}
 
 	void push_index(size_t index) {
-		assert((n_index_ + 1) < index_stack_size);
 		index_stack_[++n_index_] = index;
 	}
 
@@ -167,7 +166,6 @@ private:
 	size_t n_index_ = 0;
 
 	size_t advance(size_t n) {
-		assert(n);
 		size_t i = index_stack_[n_index_];
 		index_stack_[n_index_] += n;
 		return i;
