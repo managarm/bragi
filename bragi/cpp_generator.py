@@ -55,7 +55,7 @@ class CodeGenerator:
         for i in self.stdlib_traits.includes():
             out += f'#include {i}\n'
 
-        out += '#include "bragi_internals.hpp"\n\n'
+        out += '#include <bragi/internals.hpp>\n\n'
 
         for thing in self.unit.tokens:
             if type(thing) == NamespaceTag:
