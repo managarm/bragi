@@ -297,7 +297,7 @@ class CodeGenerator:
                 assert m.tag
 
                 out += f'{indent}{into} += bragi::detail::size_of_varint({m.tag.value});\n'
-                if m.type.is_array:
+                if m.type.is_array or mm.type.base_type == 'string':
                     out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
                     out += f'{indent}{into} += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
                 else:
@@ -312,6 +312,66 @@ class CodeGenerator:
             assert prev.type.is_array or prev.type.base_type == 'string'
             out += f'{indent}{into} += bragi::detail::size_of_varint(m_{prev.name}.size());\n'
             out += f'{indent}{into} += {subscript_type_size(prev.type)} * m_{prev.name}.size();\n'
+
+        return out + '\n'
+
+    def emit_calculate_size_of(self, what, members, parent, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}size_t size_of_{what}() {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}size_t size = {self.calculate_fixed_part_size(what, members, parent)};\n'
+
+        dyn = [i for i in members if self.is_dyn_pointer(i)]
+
+        for m in dyn:
+            if type(m) is TagsBlock:
+                for mm in m.members:
+                    out += f'{indent}if ({"p_" + mm.name}) {{\n'
+                    depth += 1
+                    indent = '\t' * depth
+
+                    assert mm.tag
+
+                    out += f'{indent}size += bragi::detail::size_of_varint({mm.tag.value});\n'
+                    if mm.type.is_array or mm.type.base_type == 'string':
+                        out += f'{indent}size += bragi::detail::size_of_varint(m_{mm.name}.size());\n'
+                        out += f'{indent}size += {subscript_type_size(mm.type)} * m_{mm.name}.size();\n'
+                    else:
+                        out += f'{indent}size += bragi::detail::size_of_varint(m_{mm.name});\n'
+
+                    depth -= 1
+                    indent = '\t' * depth
+                    out += f'{indent}}}\n'
+
+                out += f'{indent}size += bragi::detail::size_of_varint(0);\n'
+            else:
+                assert m.type.is_array or m.type.base_type == 'string'
+                out += f'{indent}size += bragi::detail::size_of_varint(m_{m.name}.size());\n'
+                out += f'{indent}size += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
+
+        out += f'\n{indent}return size;\n'
+
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n'
+
+        return out + '\n'
+
+    def emit_stub_calculate_size_of(self, what, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}size_t size_of_{what}() {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}return {8 if what == "head" else 0};\n'
+
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n'
 
         return out + '\n'
 
@@ -347,7 +407,10 @@ class CodeGenerator:
 
         if what == 'head':
             out += f'{indent}// Encode ID\n'
-            out += self.emit_write_integer('message_id', depth, 'uint64_t') + '\n'
+            out += self.emit_write_integer('message_id', depth, 'uint32_t') + '\n\n'
+
+            out += f'{indent}// Encode tail size\n'
+            out += self.emit_write_integer('size_of_tail()', depth, 'uint32_t') + '\n'
 
         i = 0
         for m in members:
@@ -370,6 +433,32 @@ class CodeGenerator:
 
             out += f'{indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n';
             out += self.emit_dynamic_member_encoder(m, depth)
+
+        out += f'{indent}return true;\n'
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n\n'
+
+        return out
+
+    def emit_stub_part_encoder(self, what, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}template <typename Writer>\n'
+        out += f'{indent}bool encode_{what}(Writer &wr) {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}bragi::serializer sr;\n'
+
+        out += '\n'
+
+        if what == 'head':
+            out += f'{indent}// Encode ID\n'
+            out += self.emit_write_integer('message_id', depth, 'uint32_t') + '\n'
+            out += self.emit_write_integer('size_of_tail()', depth, 'uint32_t') + '\n'
+        else:
+            out += f'{indent}(void)sr;\n\n'
 
         out += f'{indent}return true;\n'
         depth -= 1
@@ -472,6 +561,7 @@ class CodeGenerator:
 
         out += f'{indent}bragi::deserializer de;\n'
         out += f'{indent}uint64_t tmp;\n'
+        out += f'{indent}uint32_t tmp_s;\n'
         out += f'{indent}int32_t enum_tmp;\n'
 
         ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
@@ -480,8 +570,12 @@ class CodeGenerator:
 
         if what == 'head':
             out += f'{indent}// Decode and check ID\n'
-            out += self.emit_read_integer_into('tmp', 'uint64_t', depth)
-            out += self.emit_assert_that('tmp == message_id', depth)
+            out += self.emit_read_integer_into('tmp_s', 'uint32_t', depth)
+            out += self.emit_assert_that('tmp_s == message_id', depth)
+            out += '\n'
+
+            out += f'{indent}// Decode and ignore tail size\n'
+            out += self.emit_read_integer_into('tmp_s', 'uint32_t', depth)
             out += '\n'
 
         for m in members:
@@ -504,19 +598,44 @@ class CodeGenerator:
 
         return out
 
+    def emit_stub_part_decoder(self, what, depth = 1):
+        indent = '\t' * depth
+
+        out = f'{indent}template <typename Reader>\n'
+        out += f'{indent}bool decode_{what}(Reader &rd) {{\n'
+        depth += 1
+        indent = '\t' * depth
+
+        out += f'{indent}bragi::deserializer de;\n'
+
+        if what == 'head':
+            out += f'{indent}// Decode and check ID\n'
+            out += self.emit_read_integer_into('tmp', 'uint64_t', depth)
+            out += self.emit_assert_that('tmp == message_id', depth)
+            out += '\n'
+        else:
+            out += f'{indent}(void)de;\n\n'
+
+        out += f'{indent}return true;\n'
+        depth -= 1
+        indent = '\t' * depth
+        out += f'{indent}}}\n\n'
+
+        return out
+
     # Protobuf compatibilty code
     def emit_serialize_as_string(self, parent, depth = 1):
         indent = '\t' * depth
         out = ''
 
         if type(self.stdlib_traits) is FriggTraits:
-            out = f'{indent}bool SerializeToString(frg::string<Allocator> *str) {{\n'
+            out = f'{indent}void SerializeToString(frg::string<Allocator> *str) {{\n'
             depth += 1
             indent = '\t' * depth
 
             out += f'{indent}str->resize({parent.head.size});\n'
             out += f'{indent}bragi::limited_writer wr{{str->data(), str->size()}};\n\n'
-            out += f'{indent}return encode_head(wr);\n'
+            out += self.emit_assert_that('encode_head(wr)', depth)
             depth -= 1
             indent = '\t' * depth
 
@@ -577,7 +696,7 @@ class CodeGenerator:
             out += 'template <typename Allocator>\n'
 
         out += f'struct {message.name} {{\n'
-        out += f'\tstatic constexpr uint64_t message_id = {message.id};\n'
+        out += f'\tstatic constexpr uint32_t message_id = {message.id};\n'
         out += f'\tstatic constexpr size_t head_size = {message.head.size};\n\n'
 
         out += f'\t{message.name}({self.stdlib_traits.allocator_argument()})\n\t: '
@@ -624,11 +743,22 @@ class CodeGenerator:
                 out += '\t}\n\n'
 
         if message.head:
+            out += self.emit_calculate_size_of('head', message.head.members, message)
             out += self.emit_part_encoder('head', message, message.head.members)
             out += self.emit_part_decoder('head', message, message.head.members)
+        else:
+            out += self.emit_stub_calculate_size_of('head')
+            out += self.emit_stub_part_encoder('head')
+            out += self.emit_stub_part_decoder('head')
         if message.tail:
+            out += self.emit_calculate_size_of('tail', message.tail.members, message)
             out += self.emit_part_encoder('tail', message, message.tail.members)
             out += self.emit_part_decoder('tail', message, message.tail.members)
+        else:
+            out += self.emit_stub_calculate_size_of('tail')
+            out += self.emit_stub_part_encoder('tail')
+            out += self.emit_stub_part_decoder('tail')
+
 
         if self.protobuf_compat:
             out += self.emit_serialize_as_string(message)
