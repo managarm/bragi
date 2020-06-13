@@ -172,4 +172,76 @@ private:
 	}
 };
 
+struct preamble_error_tag { };
+struct preamble {
+	preamble(preamble_error_tag)
+	: id_{0}, tail_size_{0}, error_{true} { }
+
+	preamble(uint32_t id, uint32_t tail_size)
+	: id_{id}, tail_size_{tail_size}, error_{false} { }
+
+	uint32_t id() const {
+		return id_;
+	}
+
+	uint32_t tail_size() const {
+		return tail_size_;
+	}
+
+	bool error() const {
+		return error_;
+	}
+
+private:
+	uint32_t id_;
+	uint32_t tail_size_;
+
+	bool error_;
+};
+
+template <typename Buffer>
+inline preamble read_preamble(const Buffer &buf) {
+	if (buf.size() < 8) {
+		printf("buffer too small...\n");
+		return preamble{preamble_error_tag{}};
+	}
+
+	limited_reader rd{buf.data(), buf.size()};
+	deserializer dr;
+	uint32_t i, t;
+
+	if (!dr.read_integer<uint32_t>(rd, i)) {
+		printf("failed to read id...\n");
+		return preamble{preamble_error_tag{}};
+	}
+	if (!dr.read_integer<uint32_t>(rd, t)) {
+		printf("failed to read tail size...\n");
+		return preamble{preamble_error_tag{}};
+	}
+
+	return preamble{i, t};
+}
+
+template <typename Message, typename Buffer>
+inline Message parse_head_tail(const Buffer &head, const Buffer &tail) {
+	Message msg;
+
+	limited_reader head_rd{head.data(), head.size()};
+	limited_reader tail_rd{tail.data(), tail.size()};
+
+	BRAGI_ASSERT(msg.decode_head(head_rd));
+	BRAGI_ASSERT(msg.decode_tail(tail_rd));
+
+	return msg;
+}
+
+template <typename Message, typename Buffer>
+inline void write_head_tail(Message &msg, Buffer &head, Buffer &tail) {
+	limited_writer head_rd{head.data(), head.size()};
+	limited_writer tail_rd{tail.data(), tail.size()};
+
+	BRAGI_ASSERT(msg.encode_head(head_rd));
+	BRAGI_ASSERT(msg.encode_tail(tail_rd));
+}
+
 } // namespace bragi
