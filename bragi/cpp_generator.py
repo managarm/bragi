@@ -298,7 +298,7 @@ class CodeGenerator:
                 assert m.tag
 
                 out += f'{indent}{into} += bragi::detail::size_of_varint({m.tag.value});\n'
-                if m.type.is_array or mm.type.base_type == 'string':
+                if m.type.is_array or m.type.base_type == 'string':
                     out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
                     out += f'{indent}{into} += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
                 else:
