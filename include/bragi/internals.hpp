@@ -201,23 +201,17 @@ private:
 
 template <typename Buffer>
 inline preamble read_preamble(const Buffer &buf) {
-	if (buf.size() < 8) {
-		printf("buffer too small...\n");
+	if (buf.size() < 8)
 		return preamble{preamble_error_tag{}};
-	}
 
 	limited_reader rd{buf.data(), buf.size()};
 	deserializer dr;
 	uint32_t i, t;
 
-	if (!dr.read_integer<uint32_t>(rd, i)) {
-		printf("failed to read id...\n");
+	if (!dr.read_integer<uint32_t>(rd, i))
 		return preamble{preamble_error_tag{}};
-	}
-	if (!dr.read_integer<uint32_t>(rd, t)) {
-		printf("failed to read tail size...\n");
+	if (!dr.read_integer<uint32_t>(rd, t))
 		return preamble{preamble_error_tag{}};
-	}
 
 	return preamble{i, t};
 }
