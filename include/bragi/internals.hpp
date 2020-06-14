@@ -216,8 +216,8 @@ inline preamble read_preamble(const Buffer &buf) {
 	return preamble{i, t};
 }
 
-template <typename Message, typename Buffer>
-inline Message parse_head_tail(const Buffer &head, const Buffer &tail) {
+template <typename Message, typename HBuffer, typename TBuffer>
+inline Message parse_head_tail(const HBuffer &head, const TBuffer &tail) {
 	Message msg;
 
 	limited_reader head_rd{head.data(), head.size()};
@@ -229,8 +229,8 @@ inline Message parse_head_tail(const Buffer &head, const Buffer &tail) {
 	return msg;
 }
 
-template <typename Message, typename Buffer>
-inline void write_head_tail(Message &msg, Buffer &head, Buffer &tail) {
+template <typename Message, typename HBuffer, typename TBuffer>
+inline void write_head_tail(Message &msg, HBuffer &head, TBuffer &tail) {
 	limited_writer head_rd{head.data(), head.size()};
 	limited_writer tail_rd{tail.data(), tail.size()};
 
