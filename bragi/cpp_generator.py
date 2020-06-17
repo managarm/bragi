@@ -561,13 +561,13 @@ class CodeGenerator:
         indent = '\t' * depth
 
         out += f'{indent}bragi::deserializer de;\n'
-        out += f'{indent}uint64_t tmp;\n'
-        out += f'{indent}uint32_t tmp_s;\n'
-        out += f'{indent}int32_t enum_tmp;\n'
+        out += f'{indent}uint64_t tmp; (void)tmp;\n'
+        out += f'{indent}uint32_t tmp_s; (void)tmp_s;\n'
+        out += f'{indent}int32_t enum_tmp; (void)enum_tmp;\n'
 
         ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
 
-        out += f'{indent}{ptr_type} ptr;\n'
+        out += f'{indent}{ptr_type} ptr; (void)ptr;\n'
 
         if what == 'head':
             out += f'{indent}// Decode and check ID\n'
