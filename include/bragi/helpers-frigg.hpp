@@ -33,7 +33,7 @@ inline frg::optional<Message> parse_head_only(const HBuffer &head) {
 }
 
 template <typename Message, typename HBuffer, typename TBuffer>
-inline void write_head_tail(Message &msg, HBuffer &head, TBuffer &tail) {
+inline bool write_head_tail(Message &msg, HBuffer &head, TBuffer &tail) {
 	limited_writer head_rd{head.data(), head.size()};
 	limited_writer tail_rd{tail.data(), tail.size()};
 
