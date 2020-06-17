@@ -302,7 +302,7 @@ class CodeGenerator:
                     out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
                     out += f'{indent}{into} += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
                 else:
-                    out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name});\n'
+                    out += f'{indent}{into} += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{m.name}));\n'
 
                 depth -= 1
                 indent = '\t' * depth
@@ -341,7 +341,7 @@ class CodeGenerator:
                         out += f'{indent}size += bragi::detail::size_of_varint(m_{mm.name}.size());\n'
                         out += f'{indent}size += {subscript_type_size(mm.type)} * m_{mm.name}.size();\n'
                     else:
-                        out += f'{indent}size += bragi::detail::size_of_varint(m_{mm.name});\n'
+                        out += f'{indent}size += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{mm.name}));\n'
 
                     depth -= 1
                     indent = '\t' * depth
