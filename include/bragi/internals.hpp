@@ -217,44 +217,4 @@ inline preamble read_preamble(const Buffer &buf) {
 	return preamble{i, t};
 }
 
-template <typename Message, typename HBuffer, typename TBuffer>
-inline Message parse_head_tail(const HBuffer &head, const TBuffer &tail) {
-	Message msg;
-
-	limited_reader head_rd{head.data(), head.size()};
-	limited_reader tail_rd{tail.data(), tail.size()};
-
-	BRAGI_ASSERT(msg.decode_head(head_rd));
-	BRAGI_ASSERT(msg.decode_tail(tail_rd));
-
-	return msg;
-}
-
-template <typename Message, typename HBuffer>
-inline Message parse_head_only(const HBuffer &head) {
-	Message msg;
-
-	limited_reader head_rd{head.data(), head.size()};
-
-	BRAGI_ASSERT(msg.decode_head(head_rd));
-
-	return msg;
-}
-
-template <typename Message, typename HBuffer, typename TBuffer>
-inline void write_head_tail(Message &msg, HBuffer &head, TBuffer &tail) {
-	limited_writer head_rd{head.data(), head.size()};
-	limited_writer tail_rd{tail.data(), tail.size()};
-
-	BRAGI_ASSERT(msg.encode_head(head_rd));
-	BRAGI_ASSERT(msg.encode_tail(tail_rd));
-}
-
-template <typename Message, typename HBuffer>
-inline void write_head_only(Message &msg, HBuffer &head) {
-	limited_writer head_rd{head.data(), head.size()};
-
-	BRAGI_ASSERT(msg.encode_head(head_rd));
-}
-
 } // namespace bragi

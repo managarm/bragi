@@ -55,7 +55,6 @@ class CodeGenerator:
         for i in self.stdlib_traits.includes():
             out += f'#include {i}\n'
 
-        out += f'#define BRAGI_ASSERT {self.stdlib_traits.assert_func()}\n'
         out += '#include <bragi/internals.hpp>\n\n'
 
         for thing in self.unit.tokens:
