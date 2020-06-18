@@ -416,15 +416,11 @@ class CodeGenerator:
         for m in members:
             out += f'{indent}// Encode {"tags" if type(m) is TagsBlock else m.name}\n';
             if self.is_dyn_pointer(m):
-                if type(m) is not TagsBlock:
-                    out += self.emit_assert_that(f'p_{m.name}', depth)
                 out += self.emit_write_integer(f'dyn_offs[{i}]', depth, ptr_type)
                 i += 1
             elif m.type.is_array:
-                out += self.emit_assert_that(f'p_{m.name}', depth)
                 out += self.emit_write_fixed_array(m, depth)
             else:
-                out += self.emit_assert_that(f'p_{m.name}', depth)
                 out += self.emit_write_integer(f'm_{m.name}', depth, self.generate_type(m.type))
             out += '\n'
 
@@ -571,7 +567,7 @@ class CodeGenerator:
         if what == 'head':
             out += f'{indent}// Decode and check ID\n'
             out += self.emit_read_integer_into('tmp_s', 'uint32_t', depth)
-            out += self.emit_assert_that('tmp_s == message_id', depth)
+            out += self.emit_stmt_checked('(tmp_s == message_id)', depth)
             out += '\n'
 
             out += f'{indent}// Decode and ignore tail size\n'
