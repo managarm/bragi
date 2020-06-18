@@ -20,8 +20,8 @@ enum: "enum" NAME enum_block
 consts: "consts" NAME TYPE_NAME enum_block
 ns: "namespace" ESCAPED_STRING ";"
 
-head_section: "head" "(" INT ")" ":" message_member+
-tail_section: "tail" ":" message_member+
+head_section: "head" "(" INT ")" ":" message_member*
+tail_section: "tail" ":" message_member*
 
 enum_block: "{" (enum_member ",")* enum_member "}"
 message_block: "{" (head_section | tail_section)+ "}"

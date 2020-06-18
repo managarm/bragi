@@ -695,16 +695,19 @@ class CodeGenerator:
         out += f'\tstatic constexpr uint32_t message_id = {message.id};\n'
         out += f'\tstatic constexpr size_t head_size = {message.head.size};\n\n'
 
-        out += f'\t{message.name}({self.stdlib_traits.allocator_argument()})\n\t: '
+        out += f'\t{message.name}({self.stdlib_traits.allocator_argument()})'
 
-        for i, m in enumerate(all_members):
-            alloc = self.stdlib_traits.allocator_parameter() if (m.type.is_array or m.type.base_type == 'string') else ''
-            out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
+        if len(all_members) > 0:
+            out += '\n\t: '
+            for i, m in enumerate(all_members):
+                alloc = self.stdlib_traits.allocator_parameter() if (m.type.is_array or m.type.base_type == 'string') else ''
+                out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
 
-            if i < len(all_members) - 1:
-                out += ', \n\t  '
+                if i < len(all_members) - 1:
+                    out += ', \n\t  '
 
         out += ' { }\n\n'
+
 
         for m in all_members:
             # getters
@@ -760,9 +763,10 @@ class CodeGenerator:
             out += self.emit_serialize_as_string(message)
             out += self.emit_parse_from_array(message)
 
-        out += 'private:\n'
-        for m in all_members:
-            out += '\t{} m_{}; bool p_{};\n'.format(self.generate_type(m.type), m.name,
-                    m.name)
+        if len(all_members):
+            out += 'private:\n'
+            for m in all_members:
+                out += '\t{} m_{}; bool p_{};\n'.format(self.generate_type(m.type), m.name,
+                        m.name)
 
         return out + f'}}; // struct {message.name}\n\n'
