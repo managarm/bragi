@@ -2,12 +2,13 @@
 
 #include <bragi/internals.hpp>
 #include <frg/optional.hpp>
+#include <stddef.h>
 
 namespace bragi {
 
-template <typename Message, typename HBuffer, typename TBuffer>
-inline frg::optional<Message> parse_head_tail(const HBuffer &head, const TBuffer &tail) {
-	Message msg;
+template <template<typename> typename Message, typename Allocator, typename HBuffer, typename TBuffer>
+inline frg::optional<Message<Allocator>> parse_head_tail(const HBuffer &head, const TBuffer &tail, Allocator allocator) {
+	Message<Allocator> msg{allocator};
 
 	limited_reader head_rd{head.data(), head.size()};
 	limited_reader tail_rd{tail.data(), tail.size()};
@@ -20,9 +21,9 @@ inline frg::optional<Message> parse_head_tail(const HBuffer &head, const TBuffer
 	return msg;
 }
 
-template <typename Message, typename HBuffer>
-inline frg::optional<Message> parse_head_only(const HBuffer &head) {
-	Message msg;
+template <template<typename> typename Message, typename Allocator, typename HBuffer>
+inline frg::optional<Message<Allocator>> parse_head_only(const HBuffer &head, Allocator allocator) {
+	Message<Allocator> msg{allocator};
 
 	limited_reader head_rd{head.data(), head.size()};
 
@@ -32,22 +33,14 @@ inline frg::optional<Message> parse_head_only(const HBuffer &head) {
 	return msg;
 }
 
-template <typename Message, typename HBuffer, typename TBuffer>
-inline bool write_head_tail(Message &msg, HBuffer &head, TBuffer &tail) {
-	limited_writer head_rd{head.data(), head.size()};
-	limited_writer tail_rd{tail.data(), tail.size()};
+namespace detail {
+	struct dummy_allocator {
+		void *allocate(size_t);
+		void deallocate(void *, size_t);
+	};
+} // namespace detail
 
-	if (!msg.encode_head(head_rd))
-		return false;
-
-	return msg.encode_tail(tail_rd);
-}
-
-template <typename Message, typename HBuffer>
-inline bool write_head_only(Message &msg, HBuffer &head) {
-	limited_writer head_rd{head.data(), head.size()};
-
-	return msg.encode_head(head_rd);
-}
+template<template<typename> typename Message>
+inline constexpr auto message_id = Message<detail::dummy_allocator>::message_id;
 
 } // namespace bragi
