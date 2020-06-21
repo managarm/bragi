@@ -179,7 +179,7 @@ class CompilationUnit:
             sys.exit(1)
 
     def process(self):
-        parser = Lark(grammar, propagate_positions = True, parser = 'earley')
+        parser = Lark(grammar, propagate_positions = True, parser = 'lark')
         lines = self.source.split('\n')
         parsed = None
 
