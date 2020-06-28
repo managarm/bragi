@@ -1,13 +1,11 @@
-#!/usr/bin/env python3
-
 import sys
 
 from lark.lark import Lark
 from lark.visitors import Transformer, v_args
 from lark.exceptions import *
 
-from bragi.cpp_generator import CodeGenerator
 from bragi.tokens import *
+from bragi.types import *
 
 grammar = r'''
 start: (message | enum | consts | ns)+
@@ -17,7 +15,7 @@ attributes: tag?
 
 message: "message" NAME INT message_block
 enum: "enum" NAME enum_block
-consts: "consts" NAME TYPE_NAME enum_block
+consts: "consts" NAME type_name enum_block
 ns: "namespace" ESCAPED_STRING ";"
 
 head_section: "head" "(" INT ")" ":" message_member*
@@ -27,10 +25,10 @@ enum_block: "{" (enum_member ",")* enum_member "}"
 message_block: "{" (head_section | tail_section)+ "}"
 
 enum_member: NAME ["=" INT]
-message_member: attributes TYPE_NAME NAME ";" -> message_member
+message_member: attributes type_name NAME ";" -> message_member
                 | "tags" "{" message_member+ "}" -> tags_block
 
-TYPE_NAME: NAME ["[" [INT] "]"]
+type_name: NAME ("[" [INT] "]")*
 NAME: CNAME
 
 %import common.INT
@@ -70,7 +68,7 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def message_member(self, items, meta):
-        return MessageMember(meta.line, meta.column, items[0], Type(meta.line, meta.column, items[1]), items[2])
+        return MessageMember(meta.line, meta.column, items[0], items[1], items[2])
 
     @v_args(meta = True)
     def tags_block(self, items, meta):
@@ -85,11 +83,11 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def enum(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], "enum", "", flatten(items[1:]))
+        return Enum(meta.line, meta.column, items[0], 'enum', TypeName(0, 0, 'int32'), flatten(items[1:]))
 
     @v_args(meta = True)
     def consts(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], "consts", items[1], flatten(items[2:]))
+        return Enum(meta.line, meta.column, items[0], 'consts', items[1], flatten(items[2:]))
 
     @v_args(meta = True)
     def enum_member(self, items, meta):
@@ -98,9 +96,15 @@ class IdlTransformer(Transformer):
     def enum_block(self, items):
         return items
 
+    def NAME(self, items):
+        return str(items)
+
     @v_args(meta = True)
-    def ns(self, items, meta):
-        return NamespaceTag(meta.line, meta.column, items[0][1:-1])
+    def type_name(self, items, meta):
+        return TypeName(meta.line , meta.column, items[0])
+
+    def attributes(self, items):
+        return items[0] if len(items) > 0 else None
 
 def token_name_to_human_readable(token):
     if token == 'NAME':
@@ -156,6 +160,7 @@ class CompilationUnit:
         self.lines = source.split('\n')
         self.tokens = None
         self.eof = EofToken(len(self.lines) - 1, len(self.lines[-2]) + 1)
+        self.type_registry = TypeRegistry()
 
     def report_message(self, token, mesg_type, mesg1, mesg2, fatal = True):
         line = self.lines[token.line - 1]
@@ -179,7 +184,7 @@ class CompilationUnit:
             sys.exit(1)
 
     def process(self):
-        parser = Lark(grammar, propagate_positions = True, parser = 'lark')
+        parser = Lark(grammar, propagate_positions = True, parser = 'lalr')
         lines = self.source.split('\n')
         parsed = None
 
@@ -200,11 +205,38 @@ class CompilationUnit:
 
         self.tokens = IdlTransformer().transform(parsed)
 
+        for t in self.tokens:
+            if type(t) is Enum:
+                if self.type_registry.is_known_type(t.name):
+                    self.report_message(t.type, 'error', f'name {t.name} is already in use.', '')
+
+                subtype = self.type_registry.get_type(t.type.name)
+                if not subtype:
+                    self.report_message(t.type, 'error', f'unknown type for this {t.mode} block', f'{t.type.name} is not a known type', True)
+                if subtype.identity is not TypeIdentity.INTEGER:
+                    self.report_message(t.type, 'error', f'{t.name} {t.mode} block\'s type is not an integer', f'{t.type.name} is not an integer')
+                self.type_registry.register_type(
+                    Type(t.name,
+                        TypeIdentity.CONSTS if t.mode == 'consts' else TypeIdentity.ENUM,
+                        fixed_size = subtype.fixed_size,
+                        signed = subtype.signed, subtype = subtype)
+                )
+
     def verify_enum(self, enum):
         for m in enum.members:
             if type(m) is not EnumMember:
                 self.report_message(m, 'error',
                     'unexpected token inside of an enum', '')
+
+    def determine_pointer_size(self, size):
+        if size < 256:
+            return 1
+        elif size < 65536:
+            return 2
+        elif size < 4294967296:
+            return 4
+        elif size < 18446744073709551616:
+            return 8
 
     # returns size of member in bytes
     def verify_member(self, m, parent):
@@ -214,30 +246,35 @@ class CompilationUnit:
                 if not t.tag:
                     self.report_message(t, 'error',
                         'untagged member in tags block', '')
+
+            if type(parent) is HeadSection:
+                return self.determine_pointer_size(parent.size)
         else:
             if type(m) is not MessageMember:
                 self.report_message(m, 'error',
-                    'unexpected token inside of an message section', '')
+                    'unexpected token inside of an message section', '', True)
 
             if m.tag and type(parent) is not TagsBlock:
                 self.report_message(m, 'error',
                     'tagged member outside of tags block', '')
 
-            member_size = fixed_type_size(self, m.type)
+            m.type = self.type_registry.get_type(m.typename.name)
+            if not m.type:
+                self.report_message(m, 'error',
+                    'unknown type for this member', f'{m.typename.name} is not a known type')
 
-            return member_size
+            if type(parent) is HeadSection:
+                return m.type.fixed_size if not m.type.dynamic else self.determine_pointer_size(parent.size)
 
     def verify_message(self, msg):
         if msg.head is not None:
-            memb_size_total = 0
+            total_size = 8
             for m in msg.head.members:
-                size = self.verify_member(m, msg.head)
-                if size:
-                    memb_size_total += size
-            if memb_size_total > (msg.head.size - 8):
+                total_size += self.verify_member(m, msg.head)
+            if total_size > msg.head.size:
                 self.report_message(s, 'error',
-                        'head section is {} bytes too short to fit all fixed-width members'.format(memb_size_total - msg.head.size + 8),
-                        'note: the head has a hidden uint64 member for the message id')
+                        'head section is {} bytes too short to fit all fixed-width members'.format(total_size - msg.head.size),
+                        'note: the head has two hidden uint32 members for the message id and tail size')
         if msg.tail is not None:
             for m in msg.tail.members:
                 self.verify_member(m, msg.tail)

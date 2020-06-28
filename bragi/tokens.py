@@ -35,11 +35,12 @@ class Message:
         return 'Message(' + self.name + ', ' + self.id + ') { ' + str(self.body) + ' }'
 
 class MessageMember:
-    def __init__(self, line, column, tag, type, name):
+    def __init__(self, line, column, tag, typename, name):
         self.line = line
         self.column = column
         self.tag = tag
-        self.type = type
+        self.typename = typename
+        self.type = None
         self.name = name
 
     def __repr__(self):
@@ -55,21 +56,14 @@ class TagsBlock:
         return 'TagsBlock { ' + str(self.members) + ' }'
 
 
-class Type:
+class TypeName:
     def __init__(self, line, column, name):
         self.line = line
         self.column = column
-
-        parts = name.split('[', 1)
-        self.is_array = len(parts) > 1
-        self.base_type = parts[0]
-        self.array_size = (int(parts[1][:-1]) if parts[1] != ']' else -1) if self.is_array else 0
-
-        if self.base_type == 'string':
-            assert not self.is_array
+        self.name = name
 
     def __repr__(self):
-        return self.base_type + (('[' + str(self.array_size) + ']') if self.is_array else '')
+        return self.name
 
 class Tag:
     def __init__(self, line, column, value):
@@ -81,12 +75,12 @@ class Tag:
         return 'tag(' + str(self.value) + ')'
 
 class Enum:
-    def __init__(self, line, column, name, mode, type, members):
+    def __init__(self, line, column, name, mode, typename, members):
         self.line = line
         self.column = column
         self.name = name
         self.mode = mode
-        self.type = Type(line, column, type)
+        self.type = typename
         self.members = members
 
     def __repr__(self):
@@ -112,41 +106,3 @@ class NamespaceTag:
         self.line = line
         self.column = column
         self.name = name
-
-def fixed_type_size(unit, t):
-    size = None
-
-    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8':
-        size = 1
-    elif t.base_type == 'int16' or t.base_type == 'uint16':
-        size = 2
-    elif t.base_type == 'int32' or t.base_type == 'uint32':
-        size = 4
-    elif t.base_type == 'int64' or t.base_type == 'uint64':
-        size = 8
-    else:
-        for thing in unit.tokens:
-            if type(thing) is Enum and thing.mode == 'consts':
-                size = fixed_type_size(unit, thing.type)
-            elif type(thing) is Enum and thing.mode == 'enum':
-                size = 4 # int
-
-    if t.is_array:
-        if t.array_size > 0:
-            size *= t.array_size
-        else:
-            size = None
-
-    return size
-
-def subscript_type_size(t):
-    if t.base_type == 'byte' or t.base_type == 'uint8' or t.base_type == 'int8' or t.base_type == 'string':
-        return 1
-    elif t.base_type == 'int16' or t.base_type == 'uint16':
-        return 2
-    elif t.base_type == 'int32' or t.base_type == 'uint32':
-        return 4
-    elif t.base_type == 'int64' or t.base_type == 'uint64':
-        return 8
-
-    return None

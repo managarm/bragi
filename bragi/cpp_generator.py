@@ -1,4 +1,5 @@
 from .tokens import *
+from .types import *
 
 class StdlibTraits:
     def needs_allocator(self):
@@ -96,8 +97,6 @@ class CodeGenerator:
             if m.value is not None:
                 i = m.value
 
-            assert not enum.type.is_array
-
             out += f'\tinline constexpr {self.generate_type(enum.type)} {m.name} = {i};\n'
 
             i += 1
@@ -119,53 +118,30 @@ class CodeGenerator:
         return out + f'}}; // enum class {enum.name}\n\n'
 
     def generate_type(self, t):
-        base_type_name = t.base_type
-
-        if t.base_type == 'byte' or t.base_type == 'uint8':
-            base_type_name = 'uint8_t'
-        elif t.base_type == 'int8':
-            base_type_name = 'int8_t'
-        elif t.base_type == 'int16':
-            base_type_name = 'int16_t'
-        elif t.base_type == 'uint16':
-            base_type_name = 'uint16_t'
-        elif t.base_type == 'int32':
-            base_type_name = 'int32_t'
-        elif t.base_type == 'uint32':
-            base_type_name = 'uint32_t'
-        elif t.base_type == 'int64':
-            base_type_name = 'int64_t'
-        elif t.base_type == 'uint64':
-            base_type_name = 'uint64_t'
-        else:
-            for thing in self.unit.tokens:
-                if thing.name != t.base_type:
-                    continue
-
-                if type(thing) is Enum and thing.mode == 'consts':
-                    base_type_name = self.generate_type(thing.type)
-                elif type(thing) is Enum and thing.mode == 'enum':
-                    base_type_name = thing.name
-
-        if t.is_array:
-            return '{}<{}{}>'.format(self.stdlib_traits.vector(), base_type_name,
-                    ', Allocator' if self.stdlib_traits.needs_allocator() else '')
-        if t.base_type == 'string':
+        if t.identity is TypeIdentity.INTEGER:
+            if t.name == 'char':
+                return 'char'
+            return f'{"u" if not t.signed else ""}int{t.fixed_size * 8}_t'
+        elif t.identity in {TypeIdentity.ENUM, TypeIdentity.CONSTS}:
+            return self.generate_type(t.subtype)
+        elif t.identity is TypeIdentity.STRING:
             return '{}{}'.format(self.stdlib_traits.string(),
-                    '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
+                '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
+        elif t.identity is TypeIdentity.ARRAY:
+            return '{}<{}{}>'.format(self.stdlib_traits.vector(),
+                    self.generate_type(t.subtype),
+                    ', Allocator' if self.stdlib_traits.needs_allocator() else '')
         else:
-            return base_type_name
+            raise RuntimeError('unknown type in generate_type')
 
     def subscript_type(self, t):
-        if t.base_type == 'string':
-            return 'char'
-        return self.generate_type(Type(t.line, t.column, t.base_type))
+        return self.generate_type(t.subtype)
 
     def is_simple_integer(self, t):
         return t in ['char', 'int8_t', 'uint8_t', 'int16_t', 'uint16_t', 'int32_t', 'uint32_t', 'int64_t', 'uint64_t']
 
     def is_dyn_pointer(self, m):
-        return type(m) is TagsBlock or ((m.type.is_array and m.type.array_size == -1) or m.type.base_type == 'string')
+        return type(m) is TagsBlock or m.type.dynamic
 
     def count_dynamic(self, members):
         i = 0
@@ -229,7 +205,7 @@ class CodeGenerator:
                 assert m.tag
 
                 out += self.emit_write_varint(m.tag.value, depth)
-                if m.type.is_array or m.type.base_type == 'string':
+                if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
                     out += self.emit_write_dynamic_array(m, depth)
                 else:
                     out += self.emit_write_varint(f'm_{m.name}', depth)
@@ -240,7 +216,7 @@ class CodeGenerator:
 
             out += self.emit_write_varint(0, depth) # terminator tag
         else:
-            assert member.type.is_array or member.type.base_type == 'string'
+            assert member.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
             out += self.emit_write_dynamic_array(member, depth)
 
         return out + '\n'
@@ -267,7 +243,7 @@ class CodeGenerator:
 
         for m in members:
             if not self.is_dyn_pointer(m):
-                size = fixed_type_size(self.unit, m.type)
+                size = m.type.fixed_size
                 assert size
                 i += size
             else:
@@ -297,9 +273,9 @@ class CodeGenerator:
                 assert m.tag
 
                 out += f'{indent}{into} += bragi::detail::size_of_varint({m.tag.value});\n'
-                if m.type.is_array or m.type.base_type == 'string':
+                if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
                     out += f'{indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
-                    out += f'{indent}{into} += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
+                    out += f'{indent}{into} += {m.type.subtype.fixed_size} * m_{m.name}.size();\n'
                 else:
                     out += f'{indent}{into} += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{m.name}));\n'
 
@@ -309,9 +285,9 @@ class CodeGenerator:
 
             out += f'{indent}{into} += bragi::detail::size_of_varint(0);\n'
         else:
-            assert prev.type.is_array or prev.type.base_type == 'string'
+            assert prev.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
             out += f'{indent}{into} += bragi::detail::size_of_varint(m_{prev.name}.size());\n'
-            out += f'{indent}{into} += {subscript_type_size(prev.type)} * m_{prev.name}.size();\n'
+            out += f'{indent}{into} += {prev.type.subtype.fixed_size} * m_{prev.name}.size();\n'
 
         return out + '\n'
 
@@ -336,9 +312,9 @@ class CodeGenerator:
                     assert mm.tag
 
                     out += f'{indent}size += bragi::detail::size_of_varint({mm.tag.value});\n'
-                    if mm.type.is_array or mm.type.base_type == 'string':
+                    if mm.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
                         out += f'{indent}size += bragi::detail::size_of_varint(m_{mm.name}.size());\n'
-                        out += f'{indent}size += {subscript_type_size(mm.type)} * m_{mm.name}.size();\n'
+                        out += f'{indent}size += {mm.type.subtype.fixed_size} * m_{mm.name}.size();\n'
                     else:
                         out += f'{indent}size += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{mm.name}));\n'
 
@@ -348,9 +324,9 @@ class CodeGenerator:
 
                 out += f'{indent}size += bragi::detail::size_of_varint(0);\n'
             else:
-                assert m.type.is_array or m.type.base_type == 'string'
+                assert m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
                 out += f'{indent}size += bragi::detail::size_of_varint(m_{m.name}.size());\n'
-                out += f'{indent}size += {subscript_type_size(m.type)} * m_{m.name}.size();\n'
+                out += f'{indent}size += {m.type.subtype.fixed_size} * m_{m.name}.size();\n'
 
         out += f'\n{indent}return size;\n'
 
@@ -418,7 +394,7 @@ class CodeGenerator:
             if self.is_dyn_pointer(m):
                 out += self.emit_write_integer(f'dyn_offs[{i}]', depth, ptr_type)
                 i += 1
-            elif m.type.is_array:
+            elif m.type.identity is TypeIdentity.ARRAY:
                 out += self.emit_write_fixed_array(m, depth)
             else:
                 out += self.emit_write_integer(f'm_{m.name}', depth, self.generate_type(m.type))
@@ -484,8 +460,8 @@ class CodeGenerator:
 
         target_size = size
 
-        if m.type.array_size != -1 and m.type.is_array:
-            target_size = m.type.array_size
+        if m.type.identity is TypeIdentity.ARRAY and m.type.n_elements:
+            target_size = m.type.n_elements
 
         out = f'{indent}m_{m.name}.resize({target_size});\n'
         out += f'{indent}for (size_t i = 0; i < {target_size}; i++)\n'
@@ -518,7 +494,7 @@ class CodeGenerator:
                 depth += 1
                 indent = '\t' * depth
 
-                if mm.type.is_array or mm.type.base_type == 'string':
+                if mm.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
                     out += self.emit_read_varint_into('tmp2', depth)
                     out += self.emit_loop_resize_read_into(mm, 'tmp2', depth)
                 else:
@@ -579,7 +555,7 @@ class CodeGenerator:
             if self.is_dyn_pointer(m):
                 out += self.emit_decode_dynamic_member(m, ptr_type, depth)
             else:
-                if m.type.is_array:
+                if m.type.identity is TypeIdentity.ARRAY:
                     assert m.type.array_size > 0
                     out += self.emit_loop_resize_read_into(m, m.type.array_size, depth)
                 else:
@@ -700,7 +676,7 @@ class CodeGenerator:
         if len(all_members) > 0:
             out += '\n\t: '
             for i, m in enumerate(all_members):
-                alloc = self.stdlib_traits.allocator_parameter() if (m.type.is_array or m.type.base_type == 'string') else ''
+                alloc = self.stdlib_traits.allocator_parameter() if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING} else ''
                 out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
 
                 if i < len(all_members) - 1:
@@ -715,7 +691,7 @@ class CodeGenerator:
             out += f'\t\treturn m_{m.name};\n'
             out += '\t}\n\n'
 
-            if m.type.is_array:
+            if m.type.identity is TypeIdentity.ARRAY:
                 out += f'\t{self.subscript_type(m.type)} {m.name}(size_t i) {{\n'
                 out += f'\t\treturn m_{m.name}[i];\n'
                 out += '\t}\n\n'
@@ -730,7 +706,7 @@ class CodeGenerator:
             out += f'\t\tm_{m.name} = val;\n'
             out += '\t}\n\n'
 
-            if m.type.is_array:
+            if m.type.identity is TypeIdentity.ARRAY:
                 out += f'\tvoid set_{m.name}(size_t i, {self.subscript_type(m.type)} val) {{\n'
                 out += f'\t\tp_{m.name} = true;\n'
                 out += f'\t\tm_{m.name}[i] = val;\n'
