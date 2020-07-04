@@ -28,11 +28,10 @@ enum_member: NAME ["=" INT]
 message_member: attributes type_name NAME ";" -> message_member
                 | "tags" "{" message_member+ "}" -> tags_block
 
-type_name: NAME type_size?
+type_name: NAME type_size*
 NAME: CNAME
 
 type_size: "[" INT "]"
-         | "[" type_size "]"
          | "[" "]"
 
 %import common.INT
