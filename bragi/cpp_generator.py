@@ -237,7 +237,7 @@ class CodeGenerator:
             return out + f'{self.indent}{into} += {expr}.size();\n'
         elif expr_type.identity is TypeIdentity.ARRAY:
             out = f'{self.indent}{into} += bragi::detail::size_of_varint({expr}.size());\n'
-            out = f'{self.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr}.size(); i{array_depth}++) {{\n'
+            out += f'{self.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr}.size(); i{array_depth}++) {{\n'
             self.enter_indent()
             out += self.emit_calculate_dynamic_size_of_member_internal(into, f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
             self.leave_indent()
@@ -312,10 +312,10 @@ class CodeGenerator:
                 assert not expr_type.subtype.dynamic
                 assert expr_type.n_elements
 
-                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {type.n_elements}; i{array_depth}++) {{\n'
-                parent.enter_indent()
+                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr_type.n_elements}; i{array_depth}++) {{\n'
+                self.parent.enter_indent()
                 out += self.emit_encode_in_fixed_default(expr_type.subtype, array_depth + 1)
-                parent.leave_indent()
+                self.parent.leave_indent()
                 out += f'{self.parent.indent}}}\n'
 
                 return out
@@ -558,7 +558,7 @@ class CodeGenerator:
                 out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {target_size}; i{array_depth}++)\n'
                 if target_size != 'size':
                     self.parent.enter_indent()
-                    out += f'{self.indent}if (i{array_depth} < {size})\n'
+                    out += f'{self.parent.indent}if (i{array_depth} < size)\n'
 
                 self.parent.enter_indent()
                 out += self.emit_decode_dynamic_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
@@ -583,7 +583,7 @@ class CodeGenerator:
 
         if members:
             ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
-            out += f'{self.indent}{ptr_type} ptr;\n'
+            out += f'{self.indent}{ptr_type} ptr; (void)ptr;\n'
 
         if what == 'head':
             out += f'{self.indent}{{\n'
