@@ -14,13 +14,9 @@ class Type:
         self.identity = identity
         self.fixed_size = fixed_size
         self.dynamic = dynamic
-        self.subtype = None
+        self.subtype = subtype
         self.n_elements = None
         self.signed = None
-
-        if self.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
-            assert subtype
-            self.subtype = subtype
 
         if self.identity is TypeIdentity.ARRAY and n_elements:
             self.n_elements = n_elements

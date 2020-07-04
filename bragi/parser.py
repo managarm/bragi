@@ -223,12 +223,16 @@ class CompilationUnit:
                     self.report_message(t.type, 'error', f'unknown type for this {t.mode} block', f'{t.type.name} is not a known type', True)
                 if subtype.identity is not TypeIdentity.INTEGER:
                     self.report_message(t.type, 'error', f'{t.name} {t.mode} block\'s type is not an integer', f'{t.type.name} is not an integer')
+
                 self.type_registry.register_type(
                     Type(t.name,
                         TypeIdentity.CONSTS if t.mode == 'consts' else TypeIdentity.ENUM,
                         fixed_size = subtype.fixed_size,
-                        signed = subtype.signed, subtype = subtype)
+                        signed = subtype.signed,
+                        subtype = subtype)
                 )
+
+                t.type = self.type_registry.get_type(t.name)
 
     def verify_enum(self, enum):
         for m in enum.members:
