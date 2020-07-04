@@ -1,0 +1,20 @@
+message TestEmptyHead 1 {
+head(128):
+tail:
+	string foo;
+}
+
+message TestEmptyTail 2 {
+head(128):
+	string foo;
+tail:
+}
+
+message TestNoTail 3 {
+head(128):
+	string foo;
+}
+
+message TestEmptyMessage 4 {
+head(128):
+}

@@ -1,0 +1,25 @@
+enum Foo {
+	A = 1,
+	B,
+	C = 4,
+	D = 2,
+	E,
+	F
+}
+
+consts Bar uint8 {
+	A = 1,
+	B,
+	C = 4,
+	D = 2,
+	E,
+	F
+}
+
+message Test 1 {
+head(128):
+	Foo foo;
+	Bar bar;
+	Foo[] foos;
+	Bar[4] bars;
+}

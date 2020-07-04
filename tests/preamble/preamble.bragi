@@ -1,0 +1,11 @@
+message Foo 1 {
+head(128):
+	string foo;
+}
+
+message Bar 2 {
+head(128):
+	string bar;
+tail:
+	uint32 baz;
+}

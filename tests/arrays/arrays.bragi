@@ -1,0 +1,25 @@
+message Test1 1 {
+head(128):
+	byte[] arr;
+}
+
+message Test2 2 {
+head(128):
+	byte[5] arr;
+}
+
+message Test3 3 {
+head(128):
+	byte[][] arr;
+}
+
+message Test4 4 {
+head(128):
+	byte[5][] arr1;
+	byte[][5] arr2;
+}
+
+message Test5 5 {
+head(128):
+	byte[4][4] arr;
+}
