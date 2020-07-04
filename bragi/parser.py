@@ -28,8 +28,12 @@ enum_member: NAME ["=" INT]
 message_member: attributes type_name NAME ";" -> message_member
                 | "tags" "{" message_member+ "}" -> tags_block
 
-type_name: NAME ("[" [INT] "]")*
+type_name: NAME type_size?
 NAME: CNAME
+
+type_size: "[" INT "]"
+         | "[" type_size "]"
+         | "[" "]"
 
 %import common.INT
 %import common.CNAME
@@ -101,7 +105,11 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def type_name(self, items, meta):
-        return TypeName(meta.line , meta.column, items[0])
+        return TypeName(meta.line , meta.column, ''.join(items))
+
+    @v_args(meta = True)
+    def type_size(self, items, meta):
+        return '[' + ''.join(items) + ']'
 
     def attributes(self, items):
         return items[0] if len(items) > 0 else None
@@ -258,7 +266,7 @@ class CompilationUnit:
                 self.report_message(m, 'error',
                     'tagged member outside of tags block', '')
 
-            m.type = self.type_registry.get_type(m.typename.name)
+            m.type = self.type_registry.parse_type(m.typename.name)
             if not m.type:
                 self.report_message(m, 'error',
                     'unknown type for this member', f'{m.typename.name} is not a known type')

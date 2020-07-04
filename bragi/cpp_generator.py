@@ -138,8 +138,10 @@ class CodeGenerator:
             if t.name == 'char':
                 return 'char'
             return f'{"u" if not t.signed else ""}int{t.fixed_size * 8}_t'
-        elif t.identity in {TypeIdentity.ENUM, TypeIdentity.CONSTS}:
+        elif t.identity is TypeIdentity.CONSTS:
             return self.generate_type(t.subtype)
+        elif t.identity is TypeIdentity.ENUM:
+            return t.name
         elif t.identity is TypeIdentity.STRING:
             return '{}{}'.format(self.stdlib_traits.string(),
                 '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
@@ -176,62 +178,8 @@ class CodeGenerator:
 
         return out
 
-    def emit_write_varint(self, value):
-        return self.emit_stmt_checked(f'sr.write_varint(wr, static_cast<uint64_t>({value}))')
-
-    def emit_write_integer(self, value, type):
-        assert type
-        if self.is_simple_integer(type):
-            return self.emit_stmt_checked(f'sr.template write_integer<{type}>(wr, {value})')
-        else: # this is an enum, explicitly cast to underlying number type
-            return self.emit_stmt_checked(f'sr.template write_integer<int32_t>(wr, static_cast<int32_t>({value}))')
-
-    def emit_write_fixed_array(self, m):
-        out = f'{self.indent}for (size_t i = 0; i < {m.type.array_size}; i++)\n'
-        # TODO: write a more generic function to write whatever here?
-        self.enter_indent()
-        out += self.emit_write_integer(f'i < m_{m.name}.size() ? m_{m.name}[i] : 0', self.subscript_type(m.type))
-        self.leave_indent()
-
-        return out
-
-    def emit_write_dynamic_array(self, m):
-        out = self.emit_write_varint(f'm_{m.name}.size()')
-        out += f'{self.indent}for (size_t i = 0; i < m_{m.name}.size(); i++)\n'
-        # TODO: write a more generic function to write whatever here?
-        self.enter_indent()
-        out += self.emit_write_integer(f'm_{m.name}[i]', self.subscript_type(m.type))
-        self.leave_indent()
-        return out
-
     def emit_assert_that(self, stmt):
         return f'{self.indent}{self.stdlib_traits.assert_func()}({stmt});\n'
-
-    def emit_dynamic_member_encoder(self, member):
-        out = ''
-
-        if type(member) is TagsBlock:
-            for m in member.members:
-                out += f'{self.indent}if ({"p_" + m.name}) {{\n'
-                self.enter_indent()
-
-                assert m.tag
-
-                out += self.emit_write_varint(m.tag.value)
-                if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
-                    out += self.emit_write_dynamic_array(m)
-                else:
-                    out += self.emit_write_varint(f'm_{m.name}')
-
-                self.leave_indent()
-                out += f'{self.indent}}}\n'
-
-            out += self.emit_write_varint(0) # terminator tag
-        else:
-            assert member.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
-            out += self.emit_write_dynamic_array(member)
-
-        return out + '\n'
 
     def determine_pointer_size(self, what, size):
         if what != 'head':
@@ -255,13 +203,47 @@ class CodeGenerator:
 
         for m in members:
             if not self.is_dyn_pointer(m):
-                size = m.type.fixed_size
-                assert size
-                i += size
+                assert m.type.fixed_size
+                i += m.type.fixed_size
             else:
                 i += ptr_size
 
         return i
+
+    def emit_calculate_dynamic_size_of_member(self, into, member):
+        if type(member) is TagsBlock:
+            out = ''
+            for child in member.members:
+                out += f'{self.indent}if (p_{child.name}) {{\n'
+                self.enter_indent()
+                out += f'{self.indent}{into} += bragi::detail::size_of_varint({child.tag.value});\n'
+                out += self.emit_calculate_dynamic_size_of_member(into, child)
+                self.leave_indent()
+                out += f'{self.indent}}}\n\n'
+            out += f'{self.indent}{into} += bragi::detail::size_of_varint(0);\n'
+            return out
+        else:
+            return self.emit_calculate_dynamic_size_of_member_internal(into, f'm_{member.name}', member.type, 0)
+
+    def emit_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type, array_depth):
+        if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
+            if expr_type.fixed_size == 1:
+                return f'{self.indent}{into} += 1;\n'
+            return f'{self.indent}{into} += bragi::detail::size_of_varint({expr});\n'
+        elif expr_type.identity is TypeIdentity.ENUM:
+            return f'{self.indent}{into} += bragi::detail::size_of_varint(static_cast<int32_t>({expr}));\n'
+        elif expr_type.identity is TypeIdentity.STRING:
+            out = f'{self.indent}{into} += bragi::detail::size_of_varint({expr}.size());\n'
+            return out + f'{self.indent}{into} += {expr}.size();\n'
+        elif expr_type.identity is TypeIdentity.ARRAY:
+            out = f'{self.indent}{into} += bragi::detail::size_of_varint({expr}.size());\n'
+            out = f'{self.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr}.size(); i{array_depth}++) {{\n'
+            self.enter_indent()
+            out += self.emit_calculate_dynamic_size_of_member_internal(into, f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
+            self.leave_indent()
+            return out + f'{self.indent}}}\n'
+        else:
+            assert expr_type.identity is TypeIdentity.STRUCT
 
     def emit_determine_dyn_off_for(self, skip, prev, n):
         out = ''
@@ -274,31 +256,8 @@ class CodeGenerator:
 
         if not prev:
             return out + '\n'
-
-        if type(prev) is TagsBlock:
-            for m in prev.members:
-                out += f'{self.indent}if ({"p_" + m.name}) {{\n'
-                self.enter_indent()
-
-                assert m.tag
-
-                out += f'{self.indent}{into} += bragi::detail::size_of_varint({m.tag.value});\n'
-                if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
-                    out += f'{self.indent}{into} += bragi::detail::size_of_varint(m_{m.name}.size());\n'
-                    out += f'{self.indent}{into} += {m.type.subtype.fixed_size} * m_{m.name}.size();\n'
-                else:
-                    out += f'{self.indent}{into} += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{m.name}));\n'
-
-                self.leave_indent()
-                out += f'{self.indent}}}\n'
-
-            out += f'{self.indent}{into} += bragi::detail::size_of_varint(0);\n'
         else:
-            assert prev.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
-            out += f'{self.indent}{into} += bragi::detail::size_of_varint(m_{prev.name}.size());\n'
-            out += f'{self.indent}{into} += {prev.type.subtype.fixed_size} * m_{prev.name}.size();\n'
-
-        return out + '\n'
+            return out + self.emit_calculate_dynamic_size_of_member(into, prev) + '\n'
 
     def emit_calculate_size_of(self, what, members, parent):
         out = f'{self.indent}size_t size_of_{what}() {{\n'
@@ -306,31 +265,8 @@ class CodeGenerator:
 
         out += f'{self.indent}size_t size = {self.calculate_fixed_part_size(what, members, parent)};\n'
 
-        dyn = [i for i in members if self.is_dyn_pointer(i)]
-
-        for m in dyn:
-            if type(m) is TagsBlock:
-                for mm in m.members:
-                    out += f'{self.indent}if ({"p_" + mm.name}) {{\n'
-                    self.enter_indent()
-
-                    assert mm.tag
-
-                    out += f'{self.indent}size += bragi::detail::size_of_varint({mm.tag.value});\n'
-                    if mm.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
-                        out += f'{self.indent}size += bragi::detail::size_of_varint(m_{mm.name}.size());\n'
-                        out += f'{self.indent}size += {mm.type.subtype.fixed_size} * m_{mm.name}.size();\n'
-                    else:
-                        out += f'{self.indent}size += bragi::detail::size_of_varint(static_cast<uint64_t>(m_{mm.name}));\n'
-
-                    self.leave_indent()
-                    out += f'{self.indent}}}\n'
-
-                out += f'{self.indent}size += bragi::detail::size_of_varint(0);\n'
-            else:
-                assert m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}
-                out += f'{self.indent}size += bragi::detail::size_of_varint(m_{m.name}.size());\n'
-                out += f'{self.indent}size += {m.type.subtype.fixed_size} * m_{m.name}.size();\n'
+        for member in filter(self.is_dyn_pointer, members):
+            out += self.emit_calculate_dynamic_size_of_member('size', member)
 
         out += f'\n{self.indent}return size;\n'
 
@@ -356,6 +292,105 @@ class CodeGenerator:
 
         return f'uint{size * 8}_t'
 
+    class FixedEncoder:
+        def __init__(self, parent):
+            self.parent = parent
+            self.nth_dynamic = 0
+
+        def emit_encode_in_fixed(self, member, ptr_type):
+            is_tags = type(member) is TagsBlock
+            return self.emit_encode_in_fixed_internal(f'm_{member.name if not is_tags else "tags"}',
+                    member.type if not is_tags else None, is_tags, ptr_type, 0)
+
+        def emit_encode_in_fixed_default(self, expr_type, array_depth):
+            assert not is_tags and not expr_type.dynamic
+            if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
+                return self.parent.emit_stmt_checked(f'sr.write_integer<{self.parent.generate_type(type)}>(wr, 0)')
+            elif expr_type.identity is TypeIdentity.ENUM:
+                return self.parent.emit_stmt_checked(f'sr.write_integer<int32_t>(wr, static_cast<int32_t>(0))')
+            elif expr_type.identity is TypeIdentity.ARRAY:
+                assert not expr_type.subtype.dynamic
+                assert expr_type.n_elements
+
+                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {type.n_elements}; i{array_depth}++) {{\n'
+                parent.enter_indent()
+                out += self.emit_encode_in_fixed_default(expr_type.subtype, array_depth + 1)
+                parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+
+                return out
+            else:
+                assert member.type.identity not in {TypeIdentity.STRING, TypeIdentity.STRUCT}
+
+        def emit_encode_in_fixed_internal(self, expr, expr_type, is_tags, ptr_type, array_depth):
+            if is_tags or expr_type.dynamic:
+                out = self.parent.emit_stmt_checked(f'sr.write_integer<{ptr_type}>(wr, dyn_offs[{self.nth_dynamic}])')
+                self.nth_dynamic += 1
+                return out
+            elif expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
+                return self.parent.emit_stmt_checked(f'sr.write_integer<{self.parent.generate_type(expr_type)}>(wr, {expr})')
+            elif expr_type.identity is TypeIdentity.ENUM:
+                return self.parent.emit_stmt_checked(f'sr.write_integer<int32_t>(wr, static_cast<int32_t>({expr}))')
+            elif expr_type.identity is TypeIdentity.ARRAY:
+                assert not expr_type.subtype.dynamic
+                assert expr_type.n_elements
+
+                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i < {expr_type.n_elements}; i++) {{\n'
+                self.parent.enter_indent()
+                out += f'{self.parent.indent}if (i{array_depth} < {expr}.size()) {{\n'
+                self.parent.enter_indent()
+                out += self.emit_encode_in_fixed_internal(f'{name}[i{array_depth}]', expr_type.subtype, False, None, array_depth + 1)
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}} else {{'
+                self.parent.enter_indent()
+                out += self.emit_encode_in_fixed_default(expr_type.subtype, array_depth + 1)
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}'
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+
+                return out
+            else:
+                raise RuntimeError('unexpected variable type')
+
+    class DynamicEncoder:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def emit_encode_in_dynamic(self, member):
+            if type(member) is TagsBlock:
+                out = ''
+                for child in member.members:
+                    out += f'{self.parent.indent}if (p_{child.name}) {{\n'
+                    self.parent.enter_indent()
+                    out += self.parent.emit_stmt_checked(f'sr.write_varint(wr, {child.tag.value})')
+                    out += self.emit_encode_in_dynamic(child)
+                    self.parent.leave_indent()
+                    out += f'{self.parent.indent}}}\n\n'
+                out += self.parent.emit_stmt_checked(f'sr.write_varint(wr, 0)')
+                return out
+            else:
+                return self.emit_encode_in_dynamic_internal(f'm_{member.name}', member.type, 0)
+
+        def emit_encode_in_dynamic_internal(self, expr, expr_type, array_depth):
+            if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
+                if expr_type.fixed_size == 1:
+                    return self.parent.emit_stmt_checked(f'sr.write_integer<{self.parent.generate_type(expr_type)}>(wr, {expr})')
+                return self.parent.emit_stmt_checked(f'sr.write_varint(wr, static_cast<{self.parent.generate_type(expr_type)}>({expr}))')
+            elif expr_type.identity is TypeIdentity.ENUM:
+                return self.parent.emit_stmt_checked(f'sr.write_varint(wr, static_cast<int32_t>({expr}))')
+            elif expr_type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
+                out = self.parent.emit_stmt_checked(f'sr.write_varint(wr, {expr}.size())')
+                out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr}.size(); i{array_depth}++) {{\n'
+                self.parent.enter_indent()
+                out += self.emit_encode_in_dynamic_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+
+                return out
+            else:
+                raise RuntimeError('unexpected variable type')
+
     def emit_part_encoder(self, what, parent, members):
         out = f'{self.indent}template <typename Writer>\n'
         out += f'{self.indent}bool encode_{what}(Writer &wr) {{\n'
@@ -363,151 +398,181 @@ class CodeGenerator:
 
         out += f'{self.indent}bragi::serializer sr;\n'
 
-        fixed_size = self.calculate_fixed_part_size(what, members, parent)
-        ptrs = [i for i in members if self.is_dyn_pointer(i)]
+        fixed_size = self.calculate_fixed_part_size(what, members, parent) if members else None
+        ptrs = [i for i in members if self.is_dyn_pointer(i)] if members else None
+        ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None) if parent else None
 
-        ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
-
-        if len(ptrs) > 0:
-            out += f'{self.indent}{ptr_type} dyn_offs[{len(ptrs)}];\n'
+        if ptrs:
+            if len(ptrs) > 0:
+                out += f'{self.indent}{ptr_type} dyn_offs[{len(ptrs)}];\n'
 
         out += '\n'
 
-        for i, m in enumerate(ptrs):
-            out += self.emit_determine_dyn_off_for(fixed_size, ptrs[i - 1] if i > 0 else None, i)
+        if ptrs:
+            for i, m in enumerate(ptrs):
+                out += self.emit_determine_dyn_off_for(fixed_size, ptrs[i - 1] if i > 0 else None, i)
 
         if what == 'head':
             out += f'{self.indent}// Encode ID\n'
-            out += self.emit_write_integer('message_id', 'uint32_t') + '\n\n'
+            out += self.emit_stmt_checked(f'sr.template write_integer<uint32_t>(wr, message_id)')
 
             out += f'{self.indent}// Encode tail size\n'
-            out += self.emit_write_integer('size_of_tail()', 'uint32_t') + '\n'
+            out += self.emit_stmt_checked(f'sr.template write_integer<uint32_t>(wr, size_of_tail())')
 
-        i = 0
-        for m in members:
-            out += f'{self.indent}// Encode {"tags" if type(m) is TagsBlock else m.name}\n';
-            if self.is_dyn_pointer(m):
-                out += self.emit_write_integer(f'dyn_offs[{i}]', ptr_type)
-                i += 1
-            elif m.type.identity is TypeIdentity.ARRAY:
-                out += self.emit_write_fixed_array(m)
+        if members:
+            fixed_enc = self.FixedEncoder(self)
+            dyn_enc = self.DynamicEncoder(self)
+            for m in members:
+                out += fixed_enc.emit_encode_in_fixed(m, ptr_type) + '\n'
+
+            for m in ptrs:
+                out += f'{self.indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n'
+                out += dyn_enc.emit_encode_in_dynamic(m)
+
+        out += f'{self.indent}return true;\n'
+        self.leave_indent()
+        out += f'{self.indent}}}\n\n'
+
+        return out
+
+    class Decoder:
+        def __init__(self, parent):
+            self.parent = parent
+
+        def emit_decode_member(self, member, ptr_type):
+            if type(member) is TagsBlock or member.type.dynamic:
+                out = self.parent.emit_stmt_checked(f'de.read_integer<{ptr_type}>(rd, ptr)')
+                out += f'{self.parent.indent}de.push_index(ptr);\n'
+                out += self.emit_decode_dynamic(member)
+                out += f'{self.parent.indent}de.pop_index();\n'
+                return out
             else:
-                out += self.emit_write_integer(f'm_{m.name}', self.generate_type(m.type))
-            out += '\n'
+                out = self.emit_decode_fixed_internal(f'm_{member.name}', member.type, 0)
+                out += f'{self.parent.indent}p_{member.name} = true;\n'
+                return out
 
-        for m in members:
-            if not self.is_dyn_pointer(m): continue
+        def emit_decode_fixed_internal(self, expr, expr_type, array_depth):
+            assert not expr_type.dynamic
+            if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
+                out = self.parent.emit_stmt_checked(f'de.read_integer<{self.parent.generate_type(expr_type)}>(rd, {expr})')
+                return out
+            elif expr_type.identity is TypeIdentity.ENUM:
+                out = f'{self.parent.indent}{{\n'
+                self.parent.enter_indent()
+                out += f'{self.parent.indent}int32_t tmp;\n'
+                out += self.parent.emit_stmt_checked(f'de.read_integer<int32_t>(rd, tmp)')
+                out += f'{self.parent.indent}{expr} = static_cast<{self.parent.generate_type(expr_type)}>(tmp);\n'
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}{{\n'
+                return out
+            elif expr_type.identity is TypeIdentity.ARRAY:
+                assert not expr_type.subtype.dynamic
+                assert expr_type.n_elements
 
-            out += f'{self.indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n';
-            out += self.emit_dynamic_member_encoder(m)
+                out = ''
 
-        out += f'{self.indent}return true;\n'
-        self.leave_indent()
-        out += f'{self.indent}}}\n\n'
-
-        return out
-
-    def emit_stub_part_encoder(self, what):
-        out = f'{self.indent}template <typename Writer>\n'
-        out += f'{self.indent}bool encode_{what}(Writer &wr) {{\n'
-        self.enter_indent()
-
-        out += f'{self.indent}bragi::serializer sr;\n'
-
-        out += '\n'
-
-        if what == 'head':
-            out += f'{self.indent}// Encode ID\n'
-            out += self.emit_write_integer('message_id', depth, 'uint32_t') + '\n'
-            out += self.emit_write_integer('size_of_tail()', depth, 'uint32_t') + '\n'
-        else:
-            out += f'{self.indent}(void)sr;\n\n'
-
-        out += f'{self.indent}return true;\n'
-        self.leave_indent()
-        out += f'{self.indent}}}\n\n'
-
-        return out
-
-    def emit_read_integer_into(self, to, type):
-        if self.is_simple_integer(type):
-            return self.emit_stmt_checked(f'de.read_integer<{type}>(rd, {to})')
-        else: # this is an enum, read into an integer and cast to enum type
-            out = self.emit_stmt_checked(f'de.read_integer<int32_t>(rd, enum_tmp)')
-            out += f'{self.indent}{to} = static_cast<{type}>(enum_tmp);\n'
-            return out
-
-    def emit_read_varint_into(self, to):
-        return self.emit_stmt_checked(f'de.read_varint(rd, {to})')
-
-    def emit_set_member(self, member, enabled):
-        return f'{self.indent}p_{member.name} = {"true" if enabled else "false"};\n'
-
-    def emit_loop_resize_read_into(self, m, size):
-        target_size = size
-
-        if m.type.identity is TypeIdentity.ARRAY and m.type.n_elements:
-            target_size = m.type.n_elements
-
-        out = f'{self.indent}m_{m.name}.resize({target_size});\n'
-        out += f'{self.indent}for (size_t i = 0; i < {target_size}; i++)\n'
-        if target_size != size:
-            self.enter_indent()
-            out += f'{self.indent}if (i < {size})\n'
-
-        self.enter_indent()
-        out += self.emit_read_integer_into(f'*(m_{m.name}.data() + i)', self.subscript_type(m.type))
-        self.leave_indent()
-
-        if target_size != size:
-            self.leave_indent()
-
-        return out
-
-    def emit_decode_dynamic_member(self, m, ptr_type):
-        out = self.emit_read_integer_into('ptr', ptr_type)
-        out += f'{self.indent}de.push_index(ptr);\n'
-
-        if type(m) is TagsBlock:
-            out += f'{self.indent}do {{\n'
-            self.enter_indent()
-            out += f'{self.indent}uint64_t tmp2;\n'
-            out += self.emit_read_varint_into('tmp')
-            out += f'{self.indent}switch(tmp) {{\n'
-            self.enter_indent()
-            out += f'{self.indent}case 0:\n{self.indent}break;\n'
-            for mm in m.members:
-                assert mm.tag
-                out += f'{self.indent}case {mm.tag.value}:\n'
-                self.enter_indent()
-
-                if mm.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING}:
-                    out += self.emit_read_varint_into('tmp2')
-                    out += self.emit_loop_resize_read_into(mm, 'tmp2')
+                if expr_type.subtype.identity is TypeIdentity.ARRAY and self.parent.stdlib_traits.needs_allocator():
+                    out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements}, allocator);\n'
                 else:
-                    # TODO: is this correct w.r.t. signed numbers?
-                    out += self.emit_read_varint_into('tmp2')
-                    out += f'{self.indent}m_{mm.name} = static_cast<{self.generate_type(mm.type)}>(tmp2);\n'
-                out += self.emit_set_member(mm, True)
+                    out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements});\n'
 
-                out += f'{self.indent}break;\n'
-                self.leave_indent()
-            out += f'{self.indent}default:\n'
-            self.enter_indent()
-            out += self.emit_assert_that('!"Unknown tag!"')
-            self.leave_indent()
-            self.leave_indent()
-            out += f'{self.indent}}}\n'
-            self.leave_indent()
-            out += f'{self.indent}}} while(tmp);\n'
-        else:
-            out += self.emit_read_varint_into('tmp')
-            out += self.emit_loop_resize_read_into(m, 'tmp')
-            out += self.emit_set_member(m, True)
+                out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i < {expr_type.n_elements}; i++) {{\n'
+                self.parent.enter_indent()
+                out += self.emit_decode_fixed_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
 
-        out += f'{self.indent}de.pop_index();\n'
+                return out
+            else:
+                raise RuntimeError('unexpected variable type')
 
-        return out
+        def emit_decode_dynamic(self, member):
+            if type(member) is TagsBlock:
+                out = f'{self.parent.indent}{{\n'
+                self.parent.enter_indent()
+                out += f'{self.parent.indent}uint64_t tag;\n'
+
+                out += f'{self.parent.indent}do {{\n'
+                self.parent.enter_indent()
+                out += self.parent.emit_stmt_checked(f'de.read_varint(rd, tag)')
+
+                out += f'{self.parent.indent}switch (tag) {{\n'
+                self.parent.enter_indent()
+
+                out += f'{self.parent.indent}case 0: break;\n'
+
+                for child in member.members:
+                    out += f'{self.parent.indent}case {child.tag.value}:\n'
+                    self.parent.enter_indent()
+                    out += self.emit_decode_dynamic_internal(f'm_{child.name}', child.type, 0)
+                    out += f'{self.parent.indent}p_{child.name} = true;\n'
+                    out += f'{self.parent.indent}break;\n'
+                    self.parent.leave_indent()
+
+                out += f'{self.parent.indent}default:\n'
+                self.parent.enter_indent()
+                out += self.parent.emit_assert_that('!"Unknown tag!"')
+                self.parent.leave_indent()
+
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}} while (tag);\n'
+
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+                return out
+            else:
+                out = self.emit_decode_dynamic_internal(f'm_{member.name}', member.type, 0)
+                out += f'{self.parent.indent}p_{member.name} = true;\n'
+                return out
+
+        def emit_decode_dynamic_internal(self, expr, expr_type, array_depth):
+            if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS, TypeIdentity.ENUM}:
+                if expr_type.fixed_size == 1:
+                    return self.parent.emit_stmt_checked(f'de.read_integer<{self.parent.generate_type(expr_type)}>(rd, {expr})')
+
+                out = f'{self.parent.indent}{{\n'
+                self.parent.enter_indent()
+                out += f'{self.parent.indent}uint64_t tmp;\n'
+                out += self.parent.emit_stmt_checked(f'de.read_varint(rd, tmp)')
+                out += f'{self.parent.indent}{expr} = static_cast<{self.parent.generate_type(expr_type)}>(tmp);\n'
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+                return out
+            elif expr_type.identity in {TypeIdentity.STRING, TypeIdentity.ARRAY}:
+                out = f'{self.parent.indent}{{\n'
+                self.parent.enter_indent()
+                out += f'{self.parent.indent}uint64_t size;\n'
+                out += self.parent.emit_stmt_checked(f'de.read_varint(rd, size)')
+
+                target_size = 'size'
+
+                if expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements:
+                    target_size = expr_type.n_elements
+
+                if expr_type.subtype.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING} and self.parent.stdlib_traits.needs_allocator():
+                    out += f'{self.parent.indent}{expr}.resize({target_size}, allocator);\n'
+                else:
+                    out += f'{self.parent.indent}{expr}.resize({target_size});\n'
+                out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {target_size}; i{array_depth}++)\n'
+                if target_size != 'size':
+                    self.parent.enter_indent()
+                    out += f'{self.indent}if (i{array_depth} < {size})\n'
+
+                self.parent.enter_indent()
+                out += self.emit_decode_dynamic_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
+                self.parent.leave_indent()
+
+                if target_size != 'size':
+                    self.parent.leave_indent()
+
+                self.parent.leave_indent()
+                out += f'{self.parent.indent}}}\n'
+
+                return out
+            else:
+                raise RuntimeError('unexpected variable type')
 
     def emit_part_decoder(self, what, parent, members):
         out = f'{self.indent}template <typename Reader>\n'
@@ -515,57 +580,34 @@ class CodeGenerator:
         self.enter_indent()
 
         out += f'{self.indent}bragi::deserializer de;\n'
-        out += f'{self.indent}uint64_t tmp; (void)tmp;\n'
-        out += f'{self.indent}uint32_t tmp_s; (void)tmp_s;\n'
-        out += f'{self.indent}int32_t enum_tmp; (void)enum_tmp;\n'
 
-        ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
-
-        out += f'{self.indent}{ptr_type} ptr; (void)ptr;\n'
+        if members:
+            ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
+            out += f'{self.indent}{ptr_type} ptr;\n'
 
         if what == 'head':
+            out += f'{self.indent}{{\n'
+            self.enter_indent()
+            out += f'{self.indent}uint32_t tmp;\n'
             out += f'{self.indent}// Decode and check ID\n'
-            out += self.emit_read_integer_into('tmp_s', 'uint32_t')
-            out += self.emit_stmt_checked('(tmp_s == message_id)')
+            out += self.emit_stmt_checked(f'de.read_integer<uint32_t>(rd, tmp)')
+            out += self.emit_stmt_checked('(tmp == message_id)')
             out += '\n'
 
             out += f'{self.indent}// Decode and ignore tail size\n'
-            out += self.emit_read_integer_into('tmp_s', 'uint32_t')
+            out += self.emit_stmt_checked(f'de.read_integer<uint32_t>(rd, tmp)')
+            self.leave_indent()
+            out += f'{self.indent}}}\n'
             out += '\n'
 
-        for m in members:
-            out += f'{self.indent}// Decode {"tags" if type(m) is TagsBlock else m.name}\n';
-            if self.is_dyn_pointer(m):
-                out += self.emit_decode_dynamic_member(m, ptr_type)
-            else:
-                if m.type.identity is TypeIdentity.ARRAY:
-                    assert m.type.array_size > 0
-                    out += self.emit_loop_resize_read_into(m, m.type.array_size)
-                else:
-                    out += self.emit_read_integer_into(f'm_{m.name}', self.generate_type(m.type))
-                out += self.emit_set_member(m, True)
-            out += '\n'
+        dec = self.Decoder(self)
 
-        out += f'{self.indent}return true;\n'
-        self.leave_indent()
-        out += f'{self.indent}}}\n\n'
+        if members:
+            ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
 
-        return out
-
-    def emit_stub_part_decoder(self, what):
-        out = f'{self.indent}template <typename Reader>\n'
-        out += f'{self.indent}bool decode_{what}(Reader &rd) {{\n'
-        self.enter_indent()
-
-        out += f'{self.indent}bragi::deserializer de;\n'
-
-        if what == 'head':
-            out += f'{self.indent}// Decode and check ID\n'
-            out += self.emit_read_integer_into('tmp', 'uint64_t')
-            out += self.emit_assert_that('tmp == message_id')
-            out += '\n'
-        else:
-            out += f'{self.indent}(void)de;\n\n'
+            for m in members:
+                out += dec.emit_decode_member(m, ptr_type)
+                out += '\n'
 
         out += f'{self.indent}return true;\n'
         self.leave_indent()
@@ -615,47 +657,16 @@ class CodeGenerator:
 
         return out
 
-    def generate_message(self, message):
-        head = None
-        tail = None
+    def generate_accessors(self, message):
+        out = ''
 
-        try:
-            head = message.head
-        except:
-            head = None
-
-        try:
-            tail = message.tail
-        except:
-            tail = None
+        head = message.head
+        tail = message.tail
 
         all_members = flatten([
             flatten((m.members if type(m) is TagsBlock else [m] for m in head.members) if head is not None else []),
             flatten((m.members if type(m) is TagsBlock else [m] for m in tail.members) if tail is not None else [])
         ])
-
-        out = ''
-        if self.stdlib_traits.needs_allocator():
-            out += f'{self.indent}template <typename Allocator>\n'
-
-        out += f'{self.indent}struct {message.name} {{\n'
-        self.enter_indent()
-        out += f'{self.indent}static constexpr uint32_t message_id = {message.id};\n'
-        out += f'{self.indent}static constexpr size_t head_size = {message.head.size};\n\n'
-
-        out += f'{self.indent}{message.name}({self.stdlib_traits.allocator_argument()})'
-
-        if len(all_members) > 0:
-            out += f'\n{self.indent}: '
-            for i, m in enumerate(all_members):
-                alloc = self.stdlib_traits.allocator_parameter() if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING} else ''
-                out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
-
-                if i < len(all_members) - 1:
-                    out += f', \n{self.indent}  '
-
-        out += ' { }\n\n'
-
 
         for m in all_members:
             # getters
@@ -701,22 +712,57 @@ class CodeGenerator:
                 self.leave_indent()
                 out += f'{self.indent}}}\n\n'
 
+        return out
+
+    def generate_message(self, message):
+        head = message.head
+        tail = message.tail
+
+        all_members = flatten([
+            flatten((m.members if type(m) is TagsBlock else [m] for m in head.members) if head is not None else []),
+            flatten((m.members if type(m) is TagsBlock else [m] for m in tail.members) if tail is not None else [])
+        ])
+
+        out = ''
+        if self.stdlib_traits.needs_allocator():
+            out += f'{self.indent}template <typename Allocator>\n'
+
+        out += f'{self.indent}struct {message.name} {{\n'
+        self.enter_indent()
+        out += f'{self.indent}static constexpr uint32_t message_id = {message.id};\n'
+        out += f'{self.indent}static constexpr size_t head_size = {message.head.size};\n\n'
+
+        out += f'{self.indent}{message.name}({self.stdlib_traits.allocator_argument()})'
+
+        if len(all_members) > 0:
+            out += f'\n{self.indent}: '
+            for i, m in enumerate(all_members):
+                alloc = self.stdlib_traits.allocator_parameter() if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING} else ''
+                out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
+
+                if i < len(all_members) - 1:
+                    out += f', \n{self.indent}  '
+
+        out += ' { }\n\n'
+
+        out += self.generate_accessors(message)
+
         if message.head:
             out += self.emit_calculate_size_of('head', message.head.members, message)
             out += self.emit_part_encoder('head', message, message.head.members)
             out += self.emit_part_decoder('head', message, message.head.members)
         else:
             out += self.emit_stub_calculate_size_of('head')
-            out += self.emit_stub_part_encoder('head')
-            out += self.emit_stub_part_decoder('head')
+            out += self.emit_part_encoder('head', None, None)
+            out += self.emit_part_decoder('head', None, None)
         if message.tail:
             out += self.emit_calculate_size_of('tail', message.tail.members, message)
             out += self.emit_part_encoder('tail', message, message.tail.members)
             out += self.emit_part_decoder('tail', message, message.tail.members)
         else:
             out += self.emit_stub_calculate_size_of('tail')
-            out += self.emit_stub_part_encoder('tail')
-            out += self.emit_stub_part_decoder('tail')
+            out += self.emit_part_encoder('tail', None, None)
+            out += self.emit_part_decoder('tail', None, None)
 
 
         if self.protobuf_compat:

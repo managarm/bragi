@@ -59,14 +59,14 @@ class TypeRegistry:
     def parse_type(self, name):
         base, delim, size = name.rpartition('[')
 
-        if size[-1] != ']':
-            return None
-
         if delim == '':
-            if name in self.types:
+            if name not in self.types:
                 return None
             else:
                 return self.types[name]
+
+        if size[-1] != ']':
+            return None
 
         size = size[:-1]
         i_size = None
@@ -77,12 +77,12 @@ class TypeRegistry:
             except ValueError:
                 return None
 
-        base_type = parse_type(base)
+        base_type = self.parse_type(base)
         if not base_type:
             return None
 
-        dynamic = base_type.dynamic or len(size) > 0
-        t_size = base_type.size * i_size if not dynamic else None
+        dynamic = base_type.dynamic or len(size) == 0
+        t_size = base_type.fixed_size * i_size if not dynamic else None
 
         return Type(name, TypeIdentity.ARRAY,
                 fixed_size = t_size,
