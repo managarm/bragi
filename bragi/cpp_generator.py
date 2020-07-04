@@ -303,9 +303,9 @@ class CodeGenerator:
                     member.type if not is_tags else None, is_tags, ptr_type, 0)
 
         def emit_encode_in_fixed_default(self, expr_type, array_depth):
-            assert not is_tags and not expr_type.dynamic
+            assert expr_type and not expr_type.dynamic
             if expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
-                return self.parent.emit_stmt_checked(f'sr.write_integer<{self.parent.generate_type(type)}>(wr, 0)')
+                return self.parent.emit_stmt_checked(f'sr.write_integer<{self.parent.generate_type(expr_type)}>(wr, 0)')
             elif expr_type.identity is TypeIdentity.ENUM:
                 return self.parent.emit_stmt_checked(f'sr.write_integer<int32_t>(wr, static_cast<int32_t>(0))')
             elif expr_type.identity is TypeIdentity.ARRAY:
@@ -335,17 +335,17 @@ class CodeGenerator:
                 assert not expr_type.subtype.dynamic
                 assert expr_type.n_elements
 
-                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i < {expr_type.n_elements}; i++) {{\n'
+                out = f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr_type.n_elements}; i{array_depth}++) {{\n'
                 self.parent.enter_indent()
                 out += f'{self.parent.indent}if (i{array_depth} < {expr}.size()) {{\n'
                 self.parent.enter_indent()
-                out += self.emit_encode_in_fixed_internal(f'{name}[i{array_depth}]', expr_type.subtype, False, None, array_depth + 1)
+                out += self.emit_encode_in_fixed_internal(f'{expr}[i{array_depth}]', expr_type.subtype, False, None, array_depth + 1)
                 self.parent.leave_indent()
-                out += f'{self.parent.indent}}} else {{'
+                out += f'{self.parent.indent}}} else {{\n'
                 self.parent.enter_indent()
                 out += self.emit_encode_in_fixed_default(expr_type.subtype, array_depth + 1)
                 self.parent.leave_indent()
-                out += f'{self.parent.indent}}}'
+                out += f'{self.parent.indent}}}\n'
                 self.parent.leave_indent()
                 out += f'{self.parent.indent}}}\n'
 
@@ -463,7 +463,7 @@ class CodeGenerator:
                 out += self.parent.emit_stmt_checked(f'de.read_integer<int32_t>(rd, tmp)')
                 out += f'{self.parent.indent}{expr} = static_cast<{self.parent.generate_type(expr_type)}>(tmp);\n'
                 self.parent.leave_indent()
-                out += f'{self.parent.indent}{{\n'
+                out += f'{self.parent.indent}}}\n'
                 return out
             elif expr_type.identity is TypeIdentity.ARRAY:
                 assert not expr_type.subtype.dynamic
@@ -476,7 +476,7 @@ class CodeGenerator:
                 else:
                     out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements});\n'
 
-                out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i < {expr_type.n_elements}; i++) {{\n'
+                out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr_type.n_elements}; i{array_depth}++) {{\n'
                 self.parent.enter_indent()
                 out += self.emit_decode_fixed_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
                 self.parent.leave_indent()
