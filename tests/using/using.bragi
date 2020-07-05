@@ -1,0 +1,7 @@
+namespace "Hello::World";
+
+struct Test { }
+
+using "Bar::Foo" = "Test";
+using "Foo" = "Test";
+using "::Foo" = "Test";

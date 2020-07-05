@@ -116,3 +116,10 @@ class NamespaceTag:
         self.line = line
         self.column = column
         self.name = name
+
+class UsingTag:
+    def __init__(self, line, column, from_name, to_name):
+        self.line = line
+        self.column = column
+        self.from_name = from_name
+        self.to_name = to_name

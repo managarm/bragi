@@ -73,6 +73,8 @@ class CodeGenerator:
         for thing in self.unit.tokens:
             if type(thing) == NamespaceTag:
                 out += self.switch_ns(thing)
+            if type(thing) == UsingTag:
+                out += self.generate_using(thing)
             if type(thing) == Enum and thing.mode == "enum":
                 out += self.generate_enum(thing)
             if type(thing) == Enum and thing.mode == "consts":
@@ -134,6 +136,38 @@ class CodeGenerator:
 
         self.leave_indent()
         return out + f'{self.indent}}}; // enum class {enum.name}\n\n'
+
+    def make_ns_name(self, full):
+        a, b, c = full.rpartition('::')
+
+        if b == '':
+            return (self.current_ns.name if self.current_ns else '', None, full)
+
+        return (None, a, c)
+
+    def generate_using(self, using):
+        from_a, from_b, from_name = self.make_ns_name(using.from_name)
+        to_a, to_b, to_name = self.make_ns_name(using.to_name)
+        from_ns = from_a if from_a else from_b
+
+        from_full = f'::{from_ns}::{from_name}'
+
+        if not to_a:
+            last_ns = self.current_ns
+            out = self.finalize_ns()
+            self.current_ns = None
+
+            if to_b != '':
+                out += f'namespace {to_b} {{\n\n'
+
+            out += f'{self.indent}using {to_name} = {from_full};\n\n'
+
+            if to_b != '':
+                out += f'}} // namespace {to_b}\n\n'
+            out += self.switch_ns(last_ns)
+            return out
+        else:
+            return f'{self.indent}using {to_name} = {from_full};\n\n'
 
     def generate_type(self, t):
         if t.identity is TypeIdentity.INTEGER:

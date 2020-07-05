@@ -8,7 +8,7 @@ from bragi.tokens import *
 from bragi.types import *
 
 grammar = r'''
-start: (message | enum | consts | ns | struct)+
+start: (message | enum | consts | ns | struct | using)+
 
 tag: "tag" "(" INT ")"
 attributes: tag?
@@ -18,6 +18,7 @@ enum: "enum" NAME enum_block
 consts: "consts" NAME type_name enum_block
 ns: "namespace" ESCAPED_STRING ";"
 struct: "struct" NAME "{" message_member* "}"
+using: "using" ESCAPED_STRING "=" ESCAPED_STRING ";"
 
 head_section: "head" "(" INT ")" ":" message_member*
 tail_section: "tail" ":" message_member*
@@ -61,7 +62,7 @@ class IdlTransformer(Transformer):
 
     @v_args(meta = True)
     def struct(self, items, meta):
-        return Struct(meta.line, meta.column, items[0], flatten([items[1:]]) if len(items) > 1 else None)
+        return Struct(meta.line, meta.column, items[0], flatten([items[1:]]) if len(items) > 1 else [])
 
     def message_block(self, items):
         return items
@@ -98,6 +99,14 @@ class IdlTransformer(Transformer):
         return Enum(meta.line, meta.column, items[0], 'consts', items[1], flatten(items[2:]))
 
     @v_args(meta = True)
+    def using(self, items, meta):
+        return UsingTag(meta.line, meta.column, items[1][1:-1], items[0][1:-1])
+
+    @v_args(meta = True)
+    def ns(self, items, meta):
+        return NamespaceTag(meta.line, meta.column, items[0][1:-1])
+
+    @v_args(meta = True)
     def enum_member(self, items, meta):
         return EnumMember(meta.line, meta.column, items[0], int(items[1]) if len(items) > 1 else None)
 
@@ -105,6 +114,9 @@ class IdlTransformer(Transformer):
         return items
 
     def NAME(self, items):
+        return str(items)
+
+    def ESCAPED_STRING(self, items):
         return str(items)
 
     @v_args(meta = True)
@@ -328,6 +340,6 @@ class CompilationUnit:
                 self.verify_message(i)
             elif type(i) is Struct:
                 self.verify_struct(i)
-            elif type(i) is not NamespaceTag:
+            elif type(i) not in {NamespaceTag, UsingTag}:
                 self.report_message(i, 'error',
                         'unexpected token in top level', '')
