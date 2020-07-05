@@ -34,6 +34,16 @@ class Message:
     def __repr__(self):
         return 'Message(' + self.name + ', ' + self.id + ') { ' + str(self.body) + ' }'
 
+class Struct:
+    def __init__(self, line, column, name, body):
+        self.line = line
+        self.column = column
+        self.name = name
+        self.members = body
+
+    def __repr__(self):
+        return 'Struct(' + self.name + ') { ' + str(self.members) + ' }'
+
 class MessageMember:
     def __init__(self, line, column, tag, typename, name):
         self.line = line

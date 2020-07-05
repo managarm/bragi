@@ -79,6 +79,8 @@ class CodeGenerator:
                 out += self.generate_consts(thing)
             if type(thing) == Message:
                 out += self.generate_message(thing)
+            if type(thing) == Struct:
+                out += self.generate_struct(thing)
 
         out += self.finalize_ns()
 
@@ -143,17 +145,13 @@ class CodeGenerator:
         elif t.identity is TypeIdentity.ENUM:
             return t.name
         elif t.identity is TypeIdentity.STRING:
-            return '{}{}'.format(self.stdlib_traits.string(),
-                '<Allocator>' if self.stdlib_traits.needs_allocator() else '')
+            return f'{self.stdlib_traits.string()}{"<Allocator>" if self.stdlib_traits.needs_allocator() else ""}'
         elif t.identity is TypeIdentity.ARRAY:
-            return '{}<{}{}>'.format(self.stdlib_traits.vector(),
-                    self.generate_type(t.subtype),
-                    ', Allocator' if self.stdlib_traits.needs_allocator() else '')
+            return f'{self.stdlib_traits.vector()}<{self.generate_type(t.subtype)}{", Allocator" if self.stdlib_traits.needs_allocator() else ""}>'
+        elif t.identity is TypeIdentity.STRUCT:
+            return f'{t.name}{"<Allocator>" if self.stdlib_traits.needs_allocator() else ""}'
         else:
             raise RuntimeError('unknown type in generate_type')
-
-    def subscript_type(self, t):
-        return self.generate_type(t.subtype)
 
     def is_simple_integer(self, t):
         return t in ['char', 'int8_t', 'uint8_t', 'int16_t', 'uint16_t', 'int32_t', 'uint32_t', 'int64_t', 'uint64_t']
@@ -242,8 +240,10 @@ class CodeGenerator:
             out += self.emit_calculate_dynamic_size_of_member_internal(into, f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
             self.leave_indent()
             return out + f'{self.indent}}}\n'
+        elif expr_type.identity is TypeIdentity.STRUCT:
+            return f'{self.indent}{into} += {expr}.size_of_body();\n'
         else:
-            assert expr_type.identity is TypeIdentity.STRUCT
+            raise RuntimeError('unexpected member type')
 
     def emit_determine_dyn_off_for(self, skip, prev, n):
         out = ''
@@ -266,6 +266,22 @@ class CodeGenerator:
         out += f'{self.indent}size_t size = {self.calculate_fixed_part_size(what, members, parent)};\n'
 
         for member in filter(self.is_dyn_pointer, members):
+            out += self.emit_calculate_dynamic_size_of_member('size', member)
+
+        out += f'\n{self.indent}return size;\n'
+
+        self.leave_indent()
+        out += f'{self.indent}}}\n'
+
+        return out + '\n'
+
+    def emit_struct_calculate_size_of(self, members, parent):
+        out = f'{self.indent}size_t size_of_body() {{\n'
+        self.enter_indent()
+
+        out += f'{self.indent}size_t size = 0;\n'
+
+        for member in members:
             out += self.emit_calculate_dynamic_size_of_member('size', member)
 
         out += f'\n{self.indent}return size;\n'
@@ -388,6 +404,8 @@ class CodeGenerator:
                 out += f'{self.parent.indent}}}\n'
 
                 return out
+            elif expr_type.identity is TypeIdentity.STRUCT:
+                return f'{self.parent.indent}{expr}.encode_body(wr, sr);\n'
             else:
                 raise RuntimeError('unexpected variable type')
 
@@ -426,8 +444,24 @@ class CodeGenerator:
                 out += fixed_enc.emit_encode_in_fixed(m, ptr_type) + '\n'
 
             for m in ptrs:
-                out += f'{self.indent}// Encode {"tags" if type(m) is TagsBlock else m.name} (dynamic width)\n'
                 out += dyn_enc.emit_encode_in_dynamic(m)
+
+        out += f'{self.indent}return true;\n'
+        self.leave_indent()
+        out += f'{self.indent}}}\n\n'
+
+        return out
+
+    def emit_struct_encoder(self, parent, members):
+        out = f'{self.indent}template <typename Writer>\n'
+        out += f'{self.indent}bool encode_body(Writer &wr, bragi::serializer &sr) {{\n'
+        self.enter_indent()
+
+        out += '\n'
+
+        dyn_enc = self.DynamicEncoder(self)
+        for m in members:
+            out += dyn_enc.emit_encode_in_dynamic(m)
 
         out += f'{self.indent}return true;\n'
         self.leave_indent()
@@ -571,6 +605,8 @@ class CodeGenerator:
                 out += f'{self.parent.indent}}}\n'
 
                 return out
+            elif expr_type.identity is TypeIdentity.STRUCT:
+                return f'{self.parent.indent}{expr}.decode_body(rd, de);\n'
             else:
                 raise RuntimeError('unexpected variable type')
 
@@ -608,6 +644,23 @@ class CodeGenerator:
             for m in members:
                 out += dec.emit_decode_member(m, ptr_type)
                 out += '\n'
+
+        out += f'{self.indent}return true;\n'
+        self.leave_indent()
+        out += f'{self.indent}}}\n\n'
+
+        return out
+
+    def emit_struct_decoder(self, parent, members):
+        out = f'{self.indent}template <typename Reader>\n'
+        out += f'{self.indent}bool decode_body(Reader &rd, bragi::deserializer &de) {{\n'
+        self.enter_indent()
+
+        dec = self.Decoder(self)
+
+        for m in members:
+            out += dec.emit_decode_dynamic(m)
+            out += '\n'
 
         out += f'{self.indent}return true;\n'
         self.leave_indent()
@@ -657,27 +710,23 @@ class CodeGenerator:
 
         return out
 
-    def generate_accessors(self, message):
+    def emit_accessors(self, members):
         out = ''
 
-        head = message.head
-        tail = message.tail
-
-        all_members = flatten([
-            flatten((m.members if type(m) is TagsBlock else [m] for m in head.members) if head is not None else []),
-            flatten((m.members if type(m) is TagsBlock else [m] for m in tail.members) if tail is not None else [])
-        ])
-
-        for m in all_members:
+        for m in members:
             # getters
-            out += f'{self.indent}{self.generate_type(m.type)} {m.name}() {{\n'
+            ref = '&' if m.type.identity not in {TypeIdentity.INTEGER, TypeIdentity.CONSTS, TypeIdentity.ENUM} else ''
+
+            out += f'{self.indent}{self.generate_type(m.type)} {ref}{m.name}() {{\n'
             self.enter_indent()
             out += f'{self.indent}return m_{m.name};\n'
             self.leave_indent()
             out += f'{self.indent}}}\n\n'
 
             if m.type.identity is TypeIdentity.ARRAY:
-                out += f'{self.indent}{self.subscript_type(m.type)} {m.name}(size_t i) {{\n'
+                ref = '&' if m.type.subtype.identity not in {TypeIdentity.INTEGER, TypeIdentity.CONSTS, TypeIdentity.ENUM} else ''
+
+                out += f'{self.indent}{self.generate_type(m.type.subtype)} {ref}{m.name}(size_t i) {{\n'
                 self.enter_indent()
                 out += f'{self.indent}return m_{m.name}[i];\n'
                 self.leave_indent()
@@ -698,14 +747,14 @@ class CodeGenerator:
             out += f'{self.indent}}}\n\n'
 
             if m.type.identity is TypeIdentity.ARRAY:
-                out += f'{self.indent}void set_{m.name}(size_t i, {self.subscript_type(m.type)} val) {{\n'
+                out += f'{self.indent}void set_{m.name}(size_t i, {self.generate_type(m.type.subtype)} val) {{\n'
                 self.enter_indent()
                 out += f'{self.indent}p_{m.name} = true;\n'
                 out += f'{self.indent}m_{m.name}[i] = val;\n'
                 self.leave_indent()
                 out += f'{self.indent}}}\n\n'
 
-                out += f'{self.indent}void add_{m.name}({self.subscript_type(m.type)} v) {{\n'
+                out += f'{self.indent}void add_{m.name}({self.generate_type(m.type.subtype)} v) {{\n'
                 self.enter_indent()
                 out += f'{self.indent}p_{m.name} = true;\n'
                 out += f'{self.indent}m_{m.name}.push_back(v);\n'
@@ -714,13 +763,38 @@ class CodeGenerator:
 
         return out
 
-    def generate_message(self, message):
-        head = message.head
-        tail = message.tail
+    def emit_constructor(self, name, members):
+        out = f'{self.indent}{name}({self.stdlib_traits.allocator_argument()})'
 
+        if len(members) > 0:
+            out += f'\n{self.indent}: '
+            for i, m in enumerate(members):
+                alloc = self.stdlib_traits.allocator_parameter() if m.type.identity in {TypeIdentity.STRUCT, TypeIdentity.ARRAY, TypeIdentity.STRING} else ''
+                out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
+
+                if i < len(members) - 1:
+                    out += f', \n{self.indent}  '
+
+        out += ' { }\n\n'
+
+        return out
+
+    def emit_class_members(self, members):
+        out = ''
+
+        if len(members):
+            self.leave_indent()
+            out += f'{self.indent}private:\n'
+            self.enter_indent()
+            for m in members:
+                out += f'{self.indent}{self.generate_type(m.type)} m_{m.name}; bool p_{m.name};\n'
+
+        return out
+
+    def generate_message(self, message):
         all_members = flatten([
-            flatten((m.members if type(m) is TagsBlock else [m] for m in head.members) if head is not None else []),
-            flatten((m.members if type(m) is TagsBlock else [m] for m in tail.members) if tail is not None else [])
+            flatten((m.members if type(m) is TagsBlock else [m] for m in message.head.members) if message.head is not None else []),
+            flatten((m.members if type(m) is TagsBlock else [m] for m in message.tail.members) if message.tail is not None else [])
         ])
 
         out = ''
@@ -732,20 +806,8 @@ class CodeGenerator:
         out += f'{self.indent}static constexpr uint32_t message_id = {message.id};\n'
         out += f'{self.indent}static constexpr size_t head_size = {message.head.size};\n\n'
 
-        out += f'{self.indent}{message.name}({self.stdlib_traits.allocator_argument()})'
-
-        if len(all_members) > 0:
-            out += f'\n{self.indent}: '
-            for i, m in enumerate(all_members):
-                alloc = self.stdlib_traits.allocator_parameter() if m.type.identity in {TypeIdentity.ARRAY, TypeIdentity.STRING} else ''
-                out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
-
-                if i < len(all_members) - 1:
-                    out += f', \n{self.indent}  '
-
-        out += ' { }\n\n'
-
-        out += self.generate_accessors(message)
+        out += self.emit_constructor(message.name, all_members)
+        out += self.emit_accessors(all_members)
 
         if message.head:
             out += self.emit_calculate_size_of('head', message.head.members, message)
@@ -764,18 +826,37 @@ class CodeGenerator:
             out += self.emit_part_encoder('tail', None, None)
             out += self.emit_part_decoder('tail', None, None)
 
-
         if self.protobuf_compat:
             out += self.emit_serialize_as_string(message)
             out += self.emit_parse_from_array(message)
 
-        if len(all_members):
-            self.leave_indent()
-            out += f'{self.indent}private:\n'
-            self.enter_indent()
-            for m in all_members:
-                out += f'{self.indent}{self.generate_type(m.type)} m_{m.name}; bool p_{m.name};\n'
+        out += self.emit_class_members(all_members)
 
         self.leave_indent()
 
         return out + f'{self.indent}}}; // struct {message.name}\n\n'
+
+    def generate_struct(self, struct):
+        all_members = flatten([
+            flatten((m.members if type(m) is TagsBlock else [m] for m in struct.members))
+        ])
+
+        out = ''
+        if self.stdlib_traits.needs_allocator():
+            out += f'{self.indent}template <typename Allocator>\n'
+
+        out += f'{self.indent}struct {struct.name} {{\n'
+        self.enter_indent()
+
+        out += self.emit_constructor(struct.name, all_members)
+        out += self.emit_accessors(all_members)
+
+        out += self.emit_struct_calculate_size_of(struct.members, struct)
+        out += self.emit_struct_encoder(struct, struct.members)
+        out += self.emit_struct_decoder(struct, struct.members)
+
+        out += self.emit_class_members(all_members)
+
+        self.leave_indent()
+
+        return out + f'{self.indent}}}; // struct {struct.name}\n\n'

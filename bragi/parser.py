@@ -8,7 +8,7 @@ from bragi.tokens import *
 from bragi.types import *
 
 grammar = r'''
-start: (message | enum | consts | ns)+
+start: (message | enum | consts | ns | struct)+
 
 tag: "tag" "(" INT ")"
 attributes: tag?
@@ -17,6 +17,7 @@ message: "message" NAME INT message_block
 enum: "enum" NAME enum_block
 consts: "consts" NAME type_name enum_block
 ns: "namespace" ESCAPED_STRING ";"
+struct: "struct" NAME "{" message_member* "}"
 
 head_section: "head" "(" INT ")" ":" message_member*
 tail_section: "tail" ":" message_member*
@@ -57,6 +58,10 @@ class IdlTransformer(Transformer):
     @v_args(meta = True)
     def message(self, items, meta):
         return Message(meta.line, meta.column, items[0], items[1], flatten(items[2:]))
+
+    @v_args(meta = True)
+    def struct(self, items, meta):
+        return Struct(meta.line, meta.column, items[0], flatten([items[1:]]) if len(items) > 1 else None)
 
     def message_block(self, items):
         return items
@@ -232,6 +237,15 @@ class CompilationUnit:
                 )
 
                 t.type = self.type_registry.get_type(t.name)
+            if type(t) is Struct:
+                if self.type_registry.is_known_type(t.name):
+                    self.report_message(t.type, 'error', f'name {t.name} is already in use.', '')
+
+                self.type_registry.register_type(
+                    Type(t.name,
+                        TypeIdentity.STRUCT,
+                        dynamic = True)
+                )
 
     def verify_enum(self, enum):
         for m in enum.members:
@@ -250,10 +264,14 @@ class CompilationUnit:
             return 8
 
     # returns size of member in bytes
-    def verify_member(self, m, parent):
+    def verify_member(self, m, parent, known_names):
         if type(m) is TagsBlock:
             for t in m.members:
-                self.verify_member(t, m)
+                if type(t) is TagsBlock:
+                    self.report_message(t, 'error',
+                        'nested tags blocks are unsupported', '')
+
+                self.verify_member(t, m, known_names)
                 if not t.tag:
                     self.report_message(t, 'error',
                         'untagged member in tags block', '')
@@ -263,7 +281,7 @@ class CompilationUnit:
         else:
             if type(m) is not MessageMember:
                 self.report_message(m, 'error',
-                    'unexpected token inside of an message section', '', True)
+                    'unexpected token inside of an message section', '')
 
             if m.tag and type(parent) is not TagsBlock:
                 self.report_message(m, 'error',
@@ -274,21 +292,33 @@ class CompilationUnit:
                 self.report_message(m, 'error',
                     'unknown type for this member', f'{m.typename.name} is not a known type')
 
+            if m.name in known_names:
+                self.report_message(m, 'error',
+                    f'name \'{m.name}\' is already in use by a different member', '')
+
+            known_names.append(m.name)
+
             if type(parent) is HeadSection:
                 return m.type.fixed_size if not m.type.dynamic else self.determine_pointer_size(parent.size)
 
     def verify_message(self, msg):
+        known_names = []
         if msg.head is not None:
             total_size = 8
             for m in msg.head.members:
-                total_size += self.verify_member(m, msg.head)
+                total_size += self.verify_member(m, msg.head, known_names)
             if total_size > msg.head.size:
                 self.report_message(s, 'error',
                         'head section is {} bytes too short to fit all fixed-width members'.format(total_size - msg.head.size),
                         'note: the head has two hidden uint32 members for the message id and tail size')
         if msg.tail is not None:
             for m in msg.tail.members:
-                self.verify_member(m, msg.tail)
+                self.verify_member(m, msg.tail, known_names)
+
+    def verify_struct(self, struct):
+        known_names = []
+        for m in struct.members:
+            self.verify_member(m, struct, known_names)
 
     def verify(self):
         for i in self.tokens:
@@ -296,6 +326,8 @@ class CompilationUnit:
                 self.verify_enum(i)
             elif type(i) is Message:
                 self.verify_message(i)
+            elif type(i) is Struct:
+                self.verify_struct(i)
             elif type(i) is not NamespaceTag:
                 self.report_message(i, 'error',
                         'unexpected token in top level', '')

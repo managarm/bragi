@@ -1,0 +1,31 @@
+struct Foo {
+	string a;
+	uint64 b;
+	uint32 c;
+	byte[] d;
+}
+
+message Test1 1 {
+head(128):
+	Foo foo;
+}
+
+struct Bar {
+	string a;
+	uint32 b;
+}
+
+message Test2 2 {
+head(128):
+	Bar[] bars;
+}
+
+struct Baz {
+	Bar bar;
+	Foo[] foos;
+}
+
+message Test3 3 {
+head(128):
+	Baz baz;
+}
