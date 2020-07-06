@@ -448,7 +448,7 @@ class CodeGenerator:
         out += f'{self.indent}bool encode_{what}(Writer &wr) {{\n'
         self.enter_indent()
 
-        out += f'{self.indent}bragi::serializer sr;\n'
+        out += f'{self.indent}bragi::serializer sr; (void)sr;\n'
 
         fixed_size = self.calculate_fixed_part_size(what, members, parent) if members else None
         ptrs = [i for i in members if self.is_dyn_pointer(i)] if members else None
@@ -491,6 +491,7 @@ class CodeGenerator:
         out += f'{self.indent}bool encode_body(Writer &wr, bragi::serializer &sr) {{\n'
         self.enter_indent()
 
+        out += f'{self.indent}(void)sr;\n'
         out += '\n'
 
         dyn_enc = self.DynamicEncoder(self)
@@ -649,7 +650,7 @@ class CodeGenerator:
         out += f'{self.indent}bool decode_{what}(Reader &rd) {{\n'
         self.enter_indent()
 
-        out += f'{self.indent}bragi::deserializer de;\n'
+        out += f'{self.indent}bragi::deserializer de; (void)de;\n'
 
         if members:
             ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None)
@@ -689,6 +690,9 @@ class CodeGenerator:
         out = f'{self.indent}template <typename Reader>\n'
         out += f'{self.indent}bool decode_body(Reader &rd, bragi::deserializer &de) {{\n'
         self.enter_indent()
+
+        out += f'{self.indent}(void)de;'
+        out += '\n'
 
         dec = self.Decoder(self)
 
