@@ -730,7 +730,7 @@ class CodeGenerator:
             out += f'{self.indent}return str;\n'
             self.leave_indent()
 
-            out += f'{indent}}}\n\n'
+            out += f'{self.indent}}}\n\n'
 
         return out
 
