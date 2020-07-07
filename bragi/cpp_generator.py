@@ -440,7 +440,7 @@ class CodeGenerator:
 
                 return out
             elif expr_type.identity is TypeIdentity.STRUCT:
-                return f'{self.parent.indent}{expr}.encode_body(wr, sr);\n'
+                return self.parent.emit_stmt_checked(f'{expr}.encode_body(wr, sr)')
             else:
                 raise RuntimeError('unexpected variable type')
 
@@ -642,7 +642,7 @@ class CodeGenerator:
 
                 return out
             elif expr_type.identity is TypeIdentity.STRUCT:
-                return f'{self.parent.indent}{expr}.decode_body(rd, de);\n'
+                return self.parent.emit_stmt_checked(f'{expr}.decode_body(rd, de)')
             else:
                 raise RuntimeError('unexpected variable type')
 
