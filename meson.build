@@ -5,10 +5,10 @@ bragi_dep = declare_dependency(include_directories: bragi_inc)
 
 if get_option('install_headers')
 	install_headers(
-		'bragi/internals.hpp',
-		'bragi/helpers-all.hpp',
-		'bragi/helpers-std.hpp',
-		'bragi/helpers-frigg.hpp',
+		'include/bragi/internals.hpp',
+		'include/bragi/helpers-all.hpp',
+		'include/bragi/helpers-std.hpp',
+		'include/bragi/helpers-frigg.hpp',
 		subdir: 'bragi/')
 endif
 
