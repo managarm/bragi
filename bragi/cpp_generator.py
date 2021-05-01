@@ -449,6 +449,7 @@ class CodeGenerator:
         out += f'{self.indent}bool encode_{what}(Writer &wr) {{\n'
         self.enter_indent()
 
+        out += f'{self.indent}(void)wr;\n'
         out += f'{self.indent}bragi::serializer sr; (void)sr;\n'
 
         fixed_size = self.calculate_fixed_part_size(what, members, parent) if members else None
@@ -492,6 +493,7 @@ class CodeGenerator:
         out += f'{self.indent}bool encode_body(Writer &wr, bragi::serializer &sr) {{\n'
         self.enter_indent()
 
+        out += f'{self.indent}(void)wr;\n'
         out += f'{self.indent}(void)sr;\n'
         out += '\n'
 
@@ -651,6 +653,7 @@ class CodeGenerator:
         out += f'{self.indent}bool decode_{what}(Reader &rd) {{\n'
         self.enter_indent()
 
+        out += f'{self.indent}(void)rd;\n'
         out += f'{self.indent}bragi::deserializer de; (void)de;\n'
 
         if members:
@@ -692,6 +695,7 @@ class CodeGenerator:
         out += f'{self.indent}bool decode_body(Reader &rd, bragi::deserializer &de) {{\n'
         self.enter_indent()
 
+        out += f'{self.indent}(void)rd;\n'
         out += f'{self.indent}(void)de;'
         out += '\n'
 
