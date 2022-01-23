@@ -1,6 +1,6 @@
 namespace "Hello::World";
 
-struct Test { }
+message Test 1 { head(8): }
 
 using "Bar::Foo" = "Test";
 using "Foo" = "Test";

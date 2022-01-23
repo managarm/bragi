@@ -1,13 +1,15 @@
 #include <iostream>
 
-#include <using.bragi.hpp>
-#include <bragi/helpers-all.hpp>
-#include <bragi/helpers-std.hpp>
-#include <type_traits>
-#include <cassert>
+#include "../test-util.hpp"
 
-static_assert(std::is_same_v<Hello::World::Test, Bar::Foo>, "Test failed");
-static_assert(std::is_same_v<Hello::World::Test, Hello::World::Foo>, "Test failed");
-static_assert(std::is_same_v<Hello::World::Test, Foo>, "Test failed");
+#ifdef TEST_FRIGG
+#include <using.bragi.frg.hpp>
+#else
+#include <using.bragi.std.hpp>
+#endif
+
+static_assert(bragi::message_id<Hello::World::Test> == bragi::message_id<Bar::Foo>, "Test failed");
+static_assert(bragi::message_id<Hello::World::Test> == bragi::message_id<Hello::World::Foo>, "Test failed");
+static_assert(bragi::message_id<Hello::World::Test> == bragi::message_id<Foo>, "Test failed");
 
 int main() { }
