@@ -1,16 +1,21 @@
 #include <iostream>
 
-#include <empty.bragi.hpp>
-#include <bragi/helpers-all.hpp>
-#include <bragi/helpers-std.hpp>
+#include "../test-util.hpp"
+
+#ifdef TEST_FRIGG
+#include <empty.bragi.frg.hpp>
+#else
+#include <empty.bragi.std.hpp>
+#endif
+
 #include <cassert>
 
 void test_empty_head() {
-	TestEmptyHead t1;
-	t1.set_foo("TestEmptyHead");
+	auto t1 = test::make_msg<TestEmptyHead>();
+	t1.set_foo(test::make_string("TestEmptyHead"));
 
-	assert(TestEmptyHead::message_id == 1);
-	assert(TestEmptyHead::head_size == 128);
+	assert(bragi::message_id<TestEmptyHead> == 1);
+	assert(bragi::head_size<TestEmptyHead> == 128);
 	assert(t1.size_of_head() == 8);
 	assert(t1.size_of_tail() > 0);
 
@@ -18,60 +23,60 @@ void test_empty_head() {
 	std::vector<std::byte> tail_buf(t1.size_of_tail());
 	assert(bragi::write_head_tail(t1, head_buf, tail_buf));
 
-	auto t2 = bragi::parse_head_tail<TestEmptyHead>(head_buf, tail_buf);
+	auto t2 = test::parse_with<TestEmptyHead>(head_buf, tail_buf);
 	assert(t2);
 
-	assert(t2->foo() == "TestEmptyHead");
+	assert(t2->foo() == test::make_string("TestEmptyHead"));
 }
 
 void test_empty_tail() {
-	TestEmptyTail t1;
-	t1.set_foo("TestEmptyTail");
+	auto t1 = test::make_msg<TestEmptyTail>();
+	t1.set_foo(test::make_string("TestEmptyTail"));
 
-	assert(TestEmptyTail::message_id == 2);
-	assert(TestEmptyTail::head_size == 128);
+	assert(bragi::message_id<TestEmptyTail> == 2);
+	assert(bragi::head_size<TestEmptyTail> == 128);
 	assert(t1.size_of_head() > 8);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<TestEmptyTail>(head_buf);
+	auto t2 = test::parse_with<TestEmptyTail>(head_buf);
 	assert(t2);
 
-	assert(t2->foo() == "TestEmptyTail");
+	assert(t2->foo() == test::make_string("TestEmptyTail"));
 }
 
 void test_no_tail() {
-	TestNoTail t1;
-	t1.set_foo("TestNoTail");
+	auto t1 = test::make_msg<TestNoTail>();
+	t1.set_foo(test::make_string("TestNoTail"));
 
-	assert(TestNoTail::message_id == 3);
-	assert(TestNoTail::head_size == 128);
+	assert(bragi::message_id<TestNoTail> == 3);
+	assert(bragi::head_size<TestNoTail> == 128);
 	assert(t1.size_of_head() > 8);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<TestNoTail>(head_buf);
+	auto t2 = test::parse_with<TestNoTail>(head_buf);
 	assert(t2);
 
-	assert(t2->foo() == "TestNoTail");
+	assert(t2->foo() == test::make_string("TestNoTail"));
 }
 
 void test_empty_message() {
-	TestEmptyMessage t1;
+	auto t1 = test::make_msg<TestEmptyMessage>();
 
-	assert(TestEmptyMessage::message_id == 4);
-	assert(TestEmptyMessage::head_size == 128);
+	assert(bragi::message_id<TestEmptyMessage> == 4);
+	assert(bragi::head_size<TestEmptyMessage> == 128);
 	assert(t1.size_of_head() == 8);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<TestEmptyMessage>(head_buf);
+	auto t2 = test::parse_with<TestEmptyMessage>(head_buf);
 	assert(t2);
 }
 
