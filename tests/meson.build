@@ -26,10 +26,29 @@ bragi_frg_gen = generator(bragi,
 	],
 	output: '@BASENAME@.bragi.frg.hpp')
 
-subdir('basic')
-subdir('enums')
-subdir('empty')
-subdir('arrays')
-subdir('preamble')
-subdir('struct')
-subdir('using')
+tests = [
+	'basic',
+	'enums',
+	'empty',
+	'arrays',
+	'preamble',
+	'struct',
+	'using'
+]
+
+foreach t : tests
+	exe_std = executable(t + '-std',
+		t / t + '.cpp',
+		bragi_std_gen.process(t / t + '.bragi'),
+		include_directories: bragi_inc)
+
+	exe_frg = executable(t + '-frg',
+		t / t + '.cpp',
+		bragi_frg_gen.process(t / t + '.bragi'),
+		include_directories: bragi_inc,
+		cpp_args: '-DTEST_FRIGG',
+		dependencies: frigg_dep)
+
+	test(t + '-std', exe_std)
+	test(t + '-frg', exe_frg)
+endforeach
