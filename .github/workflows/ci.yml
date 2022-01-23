@@ -1,0 +1,29 @@
+name: Continuous Integration
+
+on: [push, pull_request]
+
+jobs:
+    run-tests:
+        name: Run tests
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Install prerequisites
+            run: |
+                sudo apt-get install ninja-build g++-10
+                sudo pip3 install setuptools
+                sudo pip3 install meson
+          - name: Prepare directories
+            run: |
+                mkdir bragi/
+                mkdir build/
+          - name: Checkout
+            uses: actions/checkout@v2
+            with:
+              path: bragi/
+          - name: Install bragi
+            run: 'sudo pip install -e bragi/'
+          - name: Configure tests
+            run: 'meson setup build bragi -Dbuild_tests=true'
+          - name: Run tests
+            run: 'ninja test'
+            working-directory: build/
