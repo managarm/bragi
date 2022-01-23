@@ -1,39 +1,44 @@
 #include <iostream>
 
-#include <preamble.bragi.hpp>
-#include <bragi/helpers-all.hpp>
-#include <bragi/helpers-std.hpp>
+#include "../test-util.hpp"
+
+#ifdef TEST_FRIGG
+#include <preamble.bragi.frg.hpp>
+#else
+#include <preamble.bragi.std.hpp>
+#endif
+
 #include <cassert>
 
 void expect_foo(const std::vector<std::byte> &head) {
 	auto preamble = bragi::read_preamble(head);
 	assert(!preamble.error());
-	assert(preamble.id() == Foo::message_id);
+	assert(preamble.id() == bragi::message_id<Foo>);
 	assert(preamble.tail_size() == 0);
 
-	auto t = bragi::parse_head_only<Foo>(head);
+	auto t = test::parse_with<Foo>(head);
 	assert(t);
-	assert(t->foo() == "Hello...");
+	assert(t->foo() == test::make_string("Hello..."));
 }
 
 void expect_bar(const std::vector<std::byte> &head, const std::vector<std::byte> &tail) {
 	auto preamble = bragi::read_preamble(head);
 	assert(!preamble.error());
-	assert(preamble.id() == Bar::message_id);
+	assert(preamble.id() == bragi::message_id<Bar>);
 	assert(preamble.tail_size() == 4);
 
-	auto t = bragi::parse_head_tail<Bar>(head, tail);
+	auto t = test::parse_with<Bar>(head, tail);
 	assert(t);
-	assert(t->bar() == "...world!");
+	assert(t->bar() == test::make_string("...world!"));
 	assert(t->baz() == 123456789);
 }
 
 void test_foo() {
-	Foo t;
-	t.set_foo("Hello...");
+	auto t = test::make_msg<Foo>();
+	t.set_foo(test::make_string("Hello..."));
 
-	assert(Foo::message_id == 1);
-	assert(Foo::head_size == 128);
+	assert(bragi::message_id<Foo> == 1);
+	assert(bragi::head_size<Foo> == 128);
 	assert(t.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
@@ -43,12 +48,12 @@ void test_foo() {
 }
 
 void test_bar() {
-	Bar t;
-	t.set_bar("...world!");
+	auto t = test::make_msg<Bar>();
+	t.set_bar(test::make_string("...world!"));
 	t.set_baz(123456789);
 
-	assert(Bar::message_id == 2);
-	assert(Bar::head_size == 128);
+	assert(bragi::message_id<Bar> == 2);
+	assert(bragi::head_size<Bar> == 128);
 	assert(t.size_of_tail() == 4);
 
 	std::vector<std::byte> head_buf(128);
