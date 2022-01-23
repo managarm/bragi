@@ -43,4 +43,7 @@ namespace detail {
 template<template<typename> typename Message>
 inline constexpr auto message_id = Message<detail::dummy_allocator>::message_id;
 
+template<template<typename> typename Message>
+inline constexpr auto head_size = Message<detail::dummy_allocator>::head_size;
+
 } // namespace bragi

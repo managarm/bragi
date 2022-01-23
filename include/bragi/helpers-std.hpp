@@ -32,8 +32,10 @@ inline std::optional<Message> parse_head_only(const HBuffer &head) {
 	return msg;
 }
 
-
 template<typename Message>
 inline constexpr auto message_id = Message::message_id;
+
+template<typename Message>
+inline constexpr auto head_size = Message::head_size;
 
 } // namespace bragi
