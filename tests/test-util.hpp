@@ -7,9 +7,11 @@
 #include <bragi/helpers-frigg.hpp>
 #include <frg/std_compat.hpp>
 #include <frg/vector.hpp>
+#include <frg/string.hpp>
 #else
 #include <bragi/helpers-std.hpp>
 #include <vector>
+#include <string>
 #endif
 
 namespace test {
@@ -44,6 +46,14 @@ auto make_vector(Ts &&...ts) {
 	return vec;
 #else
 	return std::vector<T>{std::forward<Ts>(ts)...};
+#endif
+}
+
+auto make_string(const char *str) {
+#ifdef TEST_FRIGG
+	return frg::string<test_allocator>{str, test_allocator{1}};
+#else
+	return std::string{str};
 #endif
 }
 

@@ -7,5 +7,6 @@ head(128):
 	tags {
 		tag(1) uint32 d;
 		tag(2) byte[] e;
+		tag(3) byte[8] f;
 	}
 }
