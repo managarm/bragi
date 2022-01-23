@@ -161,14 +161,26 @@ class CodeGenerator:
             if to_b != '':
                 out += f'namespace {to_b} {{\n\n'
 
-            out += f'{self.indent}using {to_name} = {from_full};\n\n'
+            if self.stdlib_traits.needs_allocator():
+                out += f'{self.indent}template <typename Allocator>\n'
+                out += f'{self.indent}using {to_name} = {from_full}<Allocator>;\n\n'
+            else:
+                out += f'{self.indent}using {to_name} = {from_full};\n\n'
 
             if to_b != '':
                 out += f'}} // namespace {to_b}\n\n'
             out += self.switch_ns(last_ns)
             return out
         else:
-            return f'{self.indent}using {to_name} = {from_full};\n\n'
+            out = ''
+
+            if self.stdlib_traits.needs_allocator():
+                out += f'{self.indent}template <typename Allocator>\n'
+                out += f'{self.indent}using {to_name} = {from_full}<Allocator>;\n\n'
+            else:
+                out += f'{self.indent}using {to_name} = {from_full};\n\n'
+
+            return out
 
     def check_needs_allocator(self, t):
         return (t.identity in [TypeIdentity.STRING, TypeIdentity.ARRAY, TypeIdentity.STRUCT]
