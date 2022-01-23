@@ -37,15 +37,15 @@ using vec_of = std::vector<T>;
 #endif
 
 template <typename T, typename ...Ts>
-auto make_vector(Ts &&...ts) {
+auto make_vector(Ts ...ts) {
 #ifdef TEST_FRIGG
 	frg::vector<T, test_allocator> vec{test_allocator{1}};
 
-	(vec.push_back(std::forward<Ts>(ts)), ...);
+	(vec.push_back(static_cast<T>(ts)), ...);
 
 	return vec;
 #else
-	return std::vector<T>{std::forward<Ts>(ts)...};
+	return std::vector<T>{static_cast<T>(ts)...};
 #endif
 }
 
