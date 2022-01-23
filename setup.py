@@ -3,7 +3,7 @@
 from setuptools import setup
 
 setup(name='bragi',
-    version='0.4.3',
+    version='0.4.4',
     packages=['bragi'],
     scripts=['bin/bragi'],
     install_requires=[
