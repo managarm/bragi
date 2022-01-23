@@ -170,6 +170,10 @@ class CodeGenerator:
         else:
             return f'{self.indent}using {to_name} = {from_full};\n\n'
 
+    def check_needs_allocator(self, t):
+        return (t.identity in [TypeIdentity.STRING, TypeIdentity.ARRAY, TypeIdentity.STRUCT]
+                or t.dynamic) and self.stdlib_traits.needs_allocator()
+
     def generate_type(self, t):
         if t.identity is TypeIdentity.INTEGER:
             if t.name == 'char':
@@ -543,7 +547,7 @@ class CodeGenerator:
 
                 out = ''
 
-                if expr_type.subtype.dynamic and self.parent.stdlib_traits.needs_allocator():
+                if self.parent.check_needs_allocator(expr_type.subtype):
                     out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements}, allocator);\n'
                 else:
                     out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements});\n'
@@ -623,7 +627,7 @@ class CodeGenerator:
                 if expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements:
                     target_size = expr_type.n_elements
 
-                if expr_type.subtype.dynamic and self.parent.stdlib_traits.needs_allocator():
+                if self.parent.check_needs_allocator(expr_type.subtype):
                     out += f'{self.parent.indent}{expr}.resize({target_size}, allocator);\n'
                 else:
                     out += f'{self.parent.indent}{expr}.resize({target_size});\n'
@@ -812,7 +816,7 @@ class CodeGenerator:
         if len(members) > 0 or self.stdlib_traits.needs_allocator():
             out += f'\n{self.indent}: '
             for i, m in enumerate(members):
-                alloc = self.stdlib_traits.allocator_parameter() if m.type.dynamic else ''
+                alloc = self.stdlib_traits.allocator_parameter() if self.check_needs_allocator(m.type) else ''
                 out += f'm_{m.name}{{{alloc}}}, p_{m.name}{{false}}'
 
                 if i < len(members) - 1 or self.stdlib_traits.needs_allocator():
