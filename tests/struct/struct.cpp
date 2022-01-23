@@ -1,109 +1,114 @@
 #include <iostream>
 
-#include <struct.bragi.hpp>
-#include <bragi/helpers-all.hpp>
-#include <bragi/helpers-std.hpp>
+#include "../test-util.hpp"
+
+#ifdef TEST_FRIGG
+#include <struct.bragi.frg.hpp>
+#else
+#include <struct.bragi.std.hpp>
+#endif
+
 #include <cassert>
 
 void test1() {
-	Foo f;
-	f.set_a("Hello");
+	auto f = test::make_msg<Foo>();
+	f.set_a(test::make_string("Hello"));
 	f.set_b(0xDEADBEEFCAFEBABE);
 	f.set_c(0xDEADBEEF);
-	f.set_d({1, 2, 3, 4});
+	f.set_d(test::make_vector<uint8_t>(1, 2, 3, 4));
 
-	Test1 t1;
+	auto t1 = test::make_msg<Test1>();
 	t1.set_foo(f);
 
-	assert(Test1::message_id == 1);
-	assert(Test1::head_size == 128);
+	assert(bragi::message_id<Test1> == 1);
+	assert(bragi::head_size<Test1> == 128);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<Test1>(head_buf);
+	auto t2 = test::parse_with<Test1>(head_buf);
 	assert(t2);
 
-	assert(t2->foo().a() == "Hello");
+	assert(t2->foo().a() == test::make_string("Hello"));
 	assert(t2->foo().b() == 0xDEADBEEFCAFEBABE);
 	assert(t2->foo().c() == 0xDEADBEEF);
-	auto test = std::vector<uint8_t>{1, 2, 3, 4};
+	auto test = test::make_vector<uint8_t>(1, 2, 3, 4);
 	assert(t2->foo().d() == test);
 }
 
 void test2() {
-	Test2 t1;
+	auto t1 = test::make_msg<Test2>();
 
-	Bar b1;
-	b1.set_a("Hello");
+	auto b1 = test::make_msg<Bar>();
+	b1.set_a(test::make_string("Hello"));
 	b1.set_b(1);
 	t1.add_bars(b1);
 
-	Bar b2;
-	b2.set_a("World");
+	auto b2 = test::make_msg<Bar>();
+	b2.set_a(test::make_string("World"));
 	b2.set_b(2);
 	t1.add_bars(b2);
 
-	assert(Test2::message_id == 2);
-	assert(Test2::head_size == 128);
+	assert(bragi::message_id<Test2> == 2);
+	assert(bragi::head_size<Test2> == 128);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<Test2>(head_buf);
+	auto t2 = test::parse_with<Test2>(head_buf);
 	assert(t2);
 
 	assert(t2->bars().size() == 2);
 
-	assert(t2->bars()[0].a() == "Hello");
-	assert(t2->bars()[1].a() == "World");
+	assert(t2->bars()[0].a() == test::make_string("Hello"));
+	assert(t2->bars()[1].a() == test::make_string("World"));
 
 	assert(t2->bars()[0].b() == 1);
 	assert(t2->bars()[1].b() == 2);
 }
 
 void test3() {
-	Test3 t1;
+	auto t1 = test::make_msg<Test3>();
 
-	Baz b1;
-	Bar b2;
-	b2.set_a("Hello");
+	auto b1 = test::make_msg<Baz>();
+	auto b2 = test::make_msg<Bar>();
+	b2.set_a(test::make_string("Hello"));
 	b2.set_b(1);
 	b1.set_bar(b2);
 
-	Foo f1;
-	f1.set_a("World");
+	auto f1 = test::make_msg<Foo>();
+	auto f2 = test::make_msg<Foo>();
+	f1.set_a(test::make_string("World"));
 	f1.set_b(0xDEADBEEFCAFEBABE);
 	f1.set_c(0xDEADBEEF);
-	f1.set_d({1, 2, 3, 4});
+	f1.set_d(test::make_vector<uint8_t>(1, 2, 3, 4));
 	b1.add_foos(f1);
 
-	Foo f2;
-	f2.set_a("Testing");
+	f2.set_a(test::make_string("Testing"));
 	f2.set_b(12345678901234567890u);
 	f2.set_c(0xCAFEBABE);
-	f2.set_d({5, 6, 7, 8});
+	f2.set_d(test::make_vector<uint8_t>(5, 6, 7, 8));
 	b1.add_foos(f2);
 
 	t1.set_baz(b1);
 
-	assert(Test3::message_id == 3);
-	assert(Test3::head_size == 128);
+	assert(bragi::message_id<Test3> == 3);
+	assert(bragi::head_size<Test3> == 128);
 	assert(t1.size_of_tail() == 0);
 
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<Test3>(head_buf);
+	auto t2 = test::parse_with<Test3>(head_buf);
 	assert(t2);
 
 	assert(t2->baz().foos().size() == 2);
 
-	assert(t2->baz().bar().a() == "Hello");
-	assert(t2->baz().foos()[0].a() == "World");
-	assert(t2->baz().foos()[1].a() == "Testing");
+	assert(t2->baz().bar().a() == test::make_string("Hello"));
+	assert(t2->baz().foos()[0].a() == test::make_string("World"));
+	assert(t2->baz().foos()[1].a() == test::make_string("Testing"));
 
 	assert(t2->baz().bar().b() == 1);
 	assert(t2->baz().foos()[0].b() == 0xDEADBEEFCAFEBABE);
@@ -112,8 +117,8 @@ void test3() {
 	assert(t2->baz().foos()[0].c() == 0xDEADBEEF);
 	assert(t2->baz().foos()[1].c() == 0xCAFEBABE);
 
-	std::vector<uint8_t> d1 = {1, 2, 3, 4};
-	std::vector<uint8_t> d2 = {5, 6, 7, 8};
+	auto d1 = test::make_vector<uint8_t>(1, 2, 3, 4);
+	auto d2 = test::make_vector<uint8_t>(5, 6, 7, 8);
 
 	assert(t2->baz().foos()[0].d() == d1);
 	assert(t2->baz().foos()[1].d() == d2);
