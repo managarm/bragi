@@ -1,20 +1,25 @@
 #include <iostream>
 
-#include <enums.bragi.hpp>
-#include <bragi/helpers-all.hpp>
-#include <bragi/helpers-std.hpp>
+#include "../test-util.hpp"
+
+#ifdef TEST_FRIGG
+#include <enums.bragi.frg.hpp>
+#else
+#include <enums.bragi.std.hpp>
+#endif
+
 #include <cassert>
 
 int main() {
-	Test t1;
+	auto t1 = test::make_msg<Test>();
 	t1.set_foo(Foo::D);
 	t1.set_bar(Bar::E);
 
-	t1.set_foos({Foo::D, Foo::A, Foo::F, Foo::B});
-	t1.set_bars({Bar::E, Bar::B, Bar::A, Bar::C});
+	t1.set_foos(test::make_vector<Foo>(Foo::D, Foo::A, Foo::F, Foo::B));
+	t1.set_bars(test::make_vector<uint8_t>(Bar::E, Bar::B, Bar::A, Bar::C));
 
-	assert(Test::message_id == 1);
-	assert(Test::head_size == 128);
+	assert(bragi::message_id<Test> == 1);
+	assert(bragi::head_size<Test> == 128);
 	assert(t1.size_of_tail() == 0);
 
 	assert(static_cast<int32_t>(Foo::A) == 1);
@@ -34,15 +39,15 @@ int main() {
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 
-	auto t2 = bragi::parse_head_only<Test>(head_buf);
+	auto t2 = test::parse_with<Test>(head_buf);
 	assert(t2);
 
 	assert(t2->foo() == Foo::D);
 	assert(t2->bar() == Bar::E);
 
-	auto foos = std::vector{Foo::D, Foo::A, Foo::F, Foo::B};
+	auto foos = test::make_vector<Foo>(Foo::D, Foo::A, Foo::F, Foo::B);
 	assert(t2->foos() == foos);
 
-	auto bars = std::vector{Bar::E, Bar::B, Bar::A, Bar::C};
+	auto bars = test::make_vector<uint8_t>(Bar::E, Bar::B, Bar::A, Bar::C);
 	assert(t2->bars() == bars);
 }
