@@ -299,6 +299,13 @@ class CompilationUnit:
                 self.report_message(m, 'error',
                     'tagged member outside of tags block', '')
 
+            if m.tag:
+                if m.tag.value in parent.known_tags:
+                    self.report_message(m, 'error',
+                        'duplicate tag', f'tag {m.tag.value} is already in use by member \'{parent.known_tags[m.tag.value]}\'')
+
+                parent.known_tags[m.tag.value] = m.name
+
             m.type = self.type_registry.parse_type(m.typename.name)
             if not m.type:
                 self.report_message(m, 'error',
@@ -333,10 +340,18 @@ class CompilationUnit:
             self.verify_member(m, struct, known_names)
 
     def verify(self):
+        known_message_ids = {}
         for i in self.tokens:
             if type(i) is Enum:
                 self.verify_enum(i)
             elif type(i) is Message:
+                if i.id in known_message_ids:
+                    self.report_message(i, 'error',
+                            'duplicate message ID',
+                            f'ID {i.id} is already in use by \'{known_message_ids[i.id]}\'')
+
+                known_message_ids[i.id] = i.name
+
                 self.verify_message(i)
             elif type(i) is Struct:
                 self.verify_struct(i)

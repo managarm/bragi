@@ -61,6 +61,7 @@ class TagsBlock:
         self.line = line
         self.column = column
         self.members = members
+        self.known_tags = {}
 
     def __repr__(self):
         return 'TagsBlock { ' + str(self.members) + ' }'
