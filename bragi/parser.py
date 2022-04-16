@@ -216,16 +216,16 @@ class CompilationUnit:
             parsed = parser.parse(self.source)
         except UnexpectedToken as e:
             self.report_message(e, 'error',
-                    'unexpected token \'{}\''.format(e.token),
-                    'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
+                    f'unexpected token \'{e.token}\'',
+                    f'was expecting {expected_to_human_readable(e.expected)} here')
         except UnexpectedCharacters as e:
             self.report_message(e, 'error',
-                    'unexpected character \'{}\''.format(lines[e.line - 1][e.column - 1]),
-                    'Was expecting {} here'.format(expected_to_human_readable(e.allowed)))
+                    f'unexpected character \'{lines[e.line - 1][e.column - 1]}\'',
+                    f'was expecting {expected_to_human_readable(e.allowed)} here')
         except UnexpectedEOF as e:
             self.report_message(eof, 'error',
-                    'unexpected end of file', 
-                    'Was expecting {} here'.format(expected_to_human_readable(e.expected)))
+                    f'unexpected end of file',
+                    f'was expecting {expected_to_human_readable(e.expected)} here')
 
         self.tokens = IdlTransformer().transform(parsed)
 
@@ -321,7 +321,7 @@ class CompilationUnit:
                 total_size += self.verify_member(m, msg.head, known_names)
             if total_size > msg.head.size:
                 self.report_message(s, 'error',
-                        'head section is {} bytes too short to fit all fixed-width members'.format(total_size - msg.head.size),
+                        f'head section is {total_size - msg.head.size} bytes too short to fit all fixed-width members',
                         'note: the head has two hidden uint32 members for the message id and tail size')
         if msg.tail is not None:
             for m in msg.tail.members:
