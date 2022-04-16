@@ -362,8 +362,31 @@ class CompilationUnit:
                 self.report_message(i, 'error',
                         'unexpected token in group', '')
 
+    def check_duplicate_name(self, item, known_names):
+        if item.name in known_names:
+            self.report_message(item, 'error', f'redefinition of \'{item.name}\'',
+                    f'previously declared on {known_names[item.name][0]}:{known_names[item.name][1]}')
+
+        known_names[item.name] = [item.line, item.column]
+
+
+    def check_duplicate_names(self):
+        known_names = {}
+        for i in self.tokens:
+            if type(i) in {Enum, Message, Struct}:
+                self.check_duplicate_name(i, known_names)
+            elif type(i) is Group:
+                for m in i.members:
+                    self.check_duplicate_name(m, known_names)
+            elif type(i) not in {NamespaceTag, UsingTag}:
+                self.report_message(i, 'error',
+                        'unexpected token at top level', '')
+
     def verify(self):
         known_message_ids = {}
+
+        self.check_duplicate_names()
+
         for i in self.tokens:
             if type(i) is Enum:
                 self.verify_enum(i)
