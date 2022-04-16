@@ -51,6 +51,11 @@ COMMENT: "//" /(.)+/ NEWLINE
 %ignore COMMENT
 '''
 
+RESERVED_NAMES = [
+        'int8', 'int16', 'int32', 'int64',
+        'uint8', 'uint16', 'uint32', 'uint64',
+        'char', 'byte', 'string']
+
 flatten = lambda l: [item for sublist in l for item in sublist]
 
 class IdlTransformer(Transformer):
@@ -328,7 +333,7 @@ class CompilationUnit:
                 return m.type.fixed_size if not m.type.dynamic else self.determine_pointer_size(parent.size)
 
     def verify_message(self, msg):
-        known_names = []
+        known_names = RESERVED_NAMES[:]
         if msg.head is not None:
             total_size = 8
             for m in msg.head.members:
@@ -342,7 +347,7 @@ class CompilationUnit:
                 self.verify_member(m, msg.tail, known_names)
 
     def verify_struct(self, struct):
-        known_names = []
+        known_names = RESERVED_NAMES[:]
         for m in struct.members:
             self.verify_member(m, struct, known_names)
 
@@ -364,14 +369,13 @@ class CompilationUnit:
 
     def check_duplicate_name(self, item, known_names):
         if item.name in known_names:
-            self.report_message(item, 'error', f'redefinition of \'{item.name}\'',
-                    f'previously declared on {known_names[item.name][0]}:{known_names[item.name][1]}')
+            self.report_message(item, 'error', f'redefinition of \'{item.name}\'', '')
 
-        known_names[item.name] = [item.line, item.column]
-
+        known_names.append(item.name)
 
     def check_duplicate_names(self):
-        known_names = {}
+        known_names = RESERVED_NAMES[:]
+
         for i in self.tokens:
             if type(i) in {Enum, Message, Struct}:
                 self.check_duplicate_name(i, known_names)
