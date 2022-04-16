@@ -33,7 +33,8 @@ tests = [
 	'arrays',
 	'preamble',
 	'struct',
-	'using'
+	'using',
+	'group'
 ]
 
 foreach t : tests

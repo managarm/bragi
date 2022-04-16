@@ -84,6 +84,9 @@ class CodeGenerator:
                 out += self.generate_message(thing)
             if type(thing) == Struct:
                 out += self.generate_struct(thing)
+            if type(thing) == Group:
+                for m in thing.members:
+                    out += self.generate_message(m)
 
         out += self.finalize_ns()
 

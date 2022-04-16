@@ -124,3 +124,12 @@ class UsingTag:
         self.column = column
         self.from_name = from_name
         self.to_name = to_name
+
+class Group:
+    def __init__(self, line, column, body):
+        self.line = line
+        self.column = column
+        self.members = body
+
+    def __repr__(self):
+        return 'Group { ' + str(self.members) + ' }'

@@ -8,7 +8,7 @@ from bragi.tokens import *
 from bragi.types import *
 
 grammar = r'''
-start: (message | enum | consts | ns | struct | using)+
+start: (message | enum | consts | ns | struct | using | group)+
 
 tag: "tag" "(" INT ")"
 attributes: tag?
@@ -19,6 +19,7 @@ consts: "consts" NAME type_name enum_block
 ns: "namespace" ESCAPED_STRING ";"
 struct: "struct" NAME "{" message_member* "}"
 using: "using" ESCAPED_STRING "=" ESCAPED_STRING ";"
+group: "group" "{" message* "}"
 
 head_section: "head" "(" INT ")" ":" message_member*
 tail_section: "tail" ":" message_member*
@@ -130,6 +131,10 @@ class IdlTransformer(Transformer):
     def attributes(self, items):
         return items[0] if len(items) > 0 else None
 
+    @v_args(meta = True)
+    def group(self, items, meta):
+        return Group(meta.line, meta.column, items)
+
 def token_name_to_human_readable(token):
     if token == 'NAME':
         return 'a name'
@@ -169,6 +174,8 @@ def token_name_to_human_readable(token):
         return 'a tags block'
     elif token == 'TAG':
         return 'a tag'
+    elif token == 'GROUP':
+        return 'a group'
     else:
         return token
 
@@ -339,6 +346,22 @@ class CompilationUnit:
         for m in struct.members:
             self.verify_member(m, struct, known_names)
 
+    def verify_group(self, group):
+        known_message_ids = {}
+        for i in group.members:
+            if type(i) is Message:
+                if i.id in known_message_ids:
+                    self.report_message(i, 'error',
+                            'duplicate message ID',
+                            f'ID {i.id} is already in use by \'{known_message_ids[i.id]}\' in this group')
+
+                known_message_ids[i.id] = i.name
+
+                self.verify_message(i)
+            else:
+                self.report_message(i, 'error',
+                        'unexpected token in group', '')
+
     def verify(self):
         known_message_ids = {}
         for i in self.tokens:
@@ -348,13 +371,15 @@ class CompilationUnit:
                 if i.id in known_message_ids:
                     self.report_message(i, 'error',
                             'duplicate message ID',
-                            f'ID {i.id} is already in use by \'{known_message_ids[i.id]}\'')
+                            f'ID {i.id} is already in use by \'{known_message_ids[i.id]}\' at the top-level')
 
                 known_message_ids[i.id] = i.name
 
                 self.verify_message(i)
             elif type(i) is Struct:
                 self.verify_struct(i)
+            elif type(i) is Group:
+                self.verify_group(i)
             elif type(i) not in {NamespaceTag, UsingTag}:
                 self.report_message(i, 'error',
-                        'unexpected token in top level', '')
+                        'unexpected token at top level', '')

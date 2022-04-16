@@ -1,0 +1,15 @@
+message Test1 1 {
+head(128):
+}
+
+group {
+	message Test2 1 {
+	head(128):
+	}
+}
+
+group {
+	message Test3 1 {
+	head(128):
+	}
+}
