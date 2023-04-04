@@ -2,6 +2,7 @@
 
 #include <bragi/helpers-all.hpp>
 #include <utility>
+#include <vector>
 
 #ifdef TEST_FRIGG
 #include <bragi/helpers-frigg.hpp>
@@ -10,7 +11,6 @@
 #include <frg/string.hpp>
 #else
 #include <bragi/helpers-std.hpp>
-#include <vector>
 #include <string>
 #endif
 
