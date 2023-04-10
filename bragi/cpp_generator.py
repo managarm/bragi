@@ -4,6 +4,8 @@ from .types import *
 class StdlibTraits:
     def needs_allocator(self):
         return False
+    def has_ostream(self):
+        return True
     def allocator_argument(self):
         return ''
     def allocator_parameter(self):
@@ -15,11 +17,13 @@ class StdlibTraits:
     def assert_func(self):
         return 'assert'
     def includes(self):
-        return ['<stdint.h>', '<stddef.h>', '<vector>', '<cassert>', '<optional>', '<string>']
+        return ['<stdint.h>', '<stddef.h>', '<vector>', '<cassert>', '<optional>', '<string>', '<ostream>']
 
 class FriggTraits:
     def needs_allocator(self):
         return True
+    def has_ostream(self):
+        return False
     def allocator_argument(self):
         return 'Allocator allocator = Allocator()'
     def allocator_parameter(self):
@@ -139,7 +143,24 @@ class CodeGenerator:
             i += 1
 
         self.leave_indent()
-        return out + f'{self.indent}}}; // enum class {enum.name}\n\n'
+
+        pretty_printer = ''
+        if self.stdlib_traits.has_ostream():
+            pretty_printer = f'{self.indent}inline std::ostream &operator<< (std::ostream &os, const {self.current_ns.name}::{enum.name} &e) {{\n'
+            self.enter_indent()
+            pretty_printer += f'{self.indent}std::string name = "<unknown>";\n'
+            pretty_printer += f'{self.indent}switch(e) {{\n'
+            self.enter_indent()
+            for m in enum.members:
+                pretty_printer += f'{self.indent}case {enum.name}::{m.name}: name = "{m.name}"; break;\n'
+            self.leave_indent()
+            pretty_printer += f'{self.indent}}}\n'
+            pretty_printer += f'{self.indent}os << name;\n'
+            pretty_printer += f'{self.indent}return os;\n'
+            self.leave_indent()
+            pretty_printer += f'{self.indent}}}\n\n'
+
+        return out + f'{self.indent}}}; // enum class {enum.name}\n\n' + pretty_printer
 
     def make_ns_name(self, full):
         a, b, c = full.rpartition('::')
