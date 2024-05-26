@@ -1,3 +1,4 @@
+#include <array>
 #include <iostream>
 
 #include "../test-util.hpp"
@@ -30,7 +31,8 @@ void test1() {
 
 void test2() {
 	auto t1 = test::make_msg<Test2>();
-	t1.set_arr(test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF));
+	auto arr = std::array<uint8_t, 5>{0xDE, 0xAD, 0xBE, 0xEF};
+	t1.set_arr(arr);
 
 	assert(bragi::message_id<Test2> == 2);
 	assert(bragi::head_size<Test2> == 128);
@@ -42,7 +44,6 @@ void test2() {
 	auto t2 = test::parse_with<Test2>(head_buf);
 	assert(t2);
 
-	auto arr = test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF, 0);
 	assert(t2->arr() == arr);
 }
 
@@ -77,17 +78,17 @@ void test3() {
 void test4() {
 	auto t1 = test::make_msg<Test4>();
 
-	t1.set_arr1(test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5)
+	t1.set_arr1(test::make_vector<std::array<uint8_t, 5>>(
+		std::array<uint8_t, 5>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 5>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 5>{0xB1, 0x6B, 0x00, 0xB5}
 	));
 
-	t1.set_arr2(test::make_vector<test::vec_of<uint8_t>>(
+	t1.set_arr2(std::array<test::vec_of<uint8_t>, 5>{
 		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
 		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
 		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5)
-	));
+	});
 
 	assert(bragi::message_id<Test4> == 4);
 	assert(bragi::head_size<Test4> == 128);
@@ -99,19 +100,17 @@ void test4() {
 	auto t2 = test::parse_with<Test4>(head_buf);
 	assert(t2);
 
-	auto arr1 = test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF, 0),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE, 0),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5, 0)
+	auto arr1 = test::make_vector<std::array<uint8_t, 5>>(
+		std::array<uint8_t, 5>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 5>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 5>{0xB1, 0x6B, 0x00, 0xB5}
 	);
 
-	auto arr2 = test::make_vector<test::vec_of<uint8_t>>(
+	auto arr2 = std::array<test::vec_of<uint8_t>, 5>{
 		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
 		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5),
-		test::make_vector<uint8_t>(),
-		test::make_vector<uint8_t>()
-	);
+		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5)
+	};
 
 	assert(t2->arr1() == arr1);
 	assert(t2->arr2() == arr2);
@@ -120,11 +119,11 @@ void test4() {
 void test5_1() {
 	auto t1 = test::make_msg<Test5>();
 
-	t1.set_arr(test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5)
-	));
+	t1.set_arr(std::array<std::array<uint8_t, 4>, 4>{
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 4>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 4>{0xB1, 0x6B, 0x00, 0xB5}
+	});
 
 	assert(bragi::message_id<Test5> == 5);
 	assert(bragi::head_size<Test5> == 128);
@@ -136,12 +135,12 @@ void test5_1() {
 	auto t2 = test::parse_with<Test5>(head_buf);
 	assert(t2);
 
-	auto arr = test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5),
-		test::make_vector<uint8_t>(0, 0, 0, 0)
-	);
+	auto arr = std::array<std::array<uint8_t, 4>, 4>{
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 4>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 4>{0xB1, 0x6B, 0x00, 0xB5},
+		std::array<uint8_t, 4>{0, 0, 0, 0},
+	};
 
 	assert(t2->arr() == arr);
 }
@@ -149,12 +148,12 @@ void test5_1() {
 void test5_2() {
 	auto t1 = test::make_msg<Test5>();
 
-	t1.set_arr(test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5),
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF)
-	));
+	t1.set_arr(std::array<std::array<uint8_t, 4>, 4>{
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 4>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 4>{0xB1, 0x6B, 0x00, 0xB5},
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF}
+	});
 
 	assert(bragi::message_id<Test5> == 5);
 	assert(bragi::head_size<Test5> == 128);
@@ -166,12 +165,12 @@ void test5_2() {
 	auto t2 = test::parse_with<Test5>(head_buf);
 	assert(t2);
 
-	auto arr = test::make_vector<test::vec_of<uint8_t>>(
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF),
-		test::make_vector<uint8_t>(0xCA, 0xFE, 0xBA, 0xBE),
-		test::make_vector<uint8_t>(0xB1, 0x6B, 0x00, 0xB5),
-		test::make_vector<uint8_t>(0xDE, 0xAD, 0xBE, 0xEF)
-	);
+	auto arr = std::array<std::array<uint8_t, 4>, 4>{
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF},
+		std::array<uint8_t, 4>{0xCA, 0xFE, 0xBA, 0xBE},
+		std::array<uint8_t, 4>{0xB1, 0x6B, 0x00, 0xB5},
+		std::array<uint8_t, 4>{0xDE, 0xAD, 0xBE, 0xEF}
+	};
 
 	assert(t2->arr() == arr);
 }

@@ -8,6 +8,8 @@ class StdlibTraits:
         return ''
     def allocator_parameter(self):
         return ''
+    def array(self):
+        return 'std::array'
     def vector(self):
         return 'std::vector'
     def string(self):
@@ -15,7 +17,7 @@ class StdlibTraits:
     def assert_func(self):
         return 'assert'
     def includes(self):
-        return ['<stdint.h>', '<stddef.h>', '<vector>', '<cassert>', '<optional>', '<string>']
+        return ['<stdint.h>', '<stddef.h>', '<array>', '<vector>', '<cassert>', '<optional>', '<string>']
 
 class FriggTraits:
     def needs_allocator(self):
@@ -24,6 +26,8 @@ class FriggTraits:
         return 'Allocator allocator = Allocator()'
     def allocator_parameter(self):
         return 'allocator'
+    def array(self):
+        return 'std::array'
     def vector(self):
         return 'frg::vector'
     def string(self):
@@ -31,7 +35,7 @@ class FriggTraits:
     def assert_func(self):
         return 'FRG_ASSERT'
     def includes(self):
-        return ['<stdint.h>', '<stddef.h>', '<frg/vector.hpp>', '<frg/macros.hpp>', '<frg/optional.hpp>', '<frg/string.hpp>']
+        return ['<stdint.h>', '<stddef.h>', '<array>', '<frg/vector.hpp>', '<frg/macros.hpp>', '<frg/optional.hpp>', '<frg/string.hpp>']
 
 flatten = lambda l: [item for sublist in l for item in sublist]
 
@@ -186,6 +190,9 @@ class CodeGenerator:
             return out
 
     def check_needs_allocator(self, t):
+        if t.identity is TypeIdentity.ARRAY and t.n_elements is not None:
+            return False
+
         return (t.identity in [TypeIdentity.STRING, TypeIdentity.ARRAY, TypeIdentity.STRUCT]
                 or t.dynamic) and self.stdlib_traits.needs_allocator()
 
@@ -201,7 +208,10 @@ class CodeGenerator:
         elif t.identity is TypeIdentity.STRING:
             return f'{self.stdlib_traits.string()}{"<Allocator>" if self.stdlib_traits.needs_allocator() else ""}'
         elif t.identity is TypeIdentity.ARRAY:
-            return f'{self.stdlib_traits.vector()}<{self.generate_type(t.subtype)}{", Allocator" if self.stdlib_traits.needs_allocator() else ""}>'
+            if t.n_elements is None:
+                return f'{self.stdlib_traits.vector()}<{self.generate_type(t.subtype)}{", Allocator" if self.stdlib_traits.needs_allocator() else ""}>'
+            else:
+                return f'{self.stdlib_traits.array()}<{self.generate_type(t.subtype)}, {t.n_elements}>'
         elif t.identity is TypeIdentity.STRUCT:
             return f'{t.name}{"<Allocator>" if self.stdlib_traits.needs_allocator() else ""}'
         else:
@@ -562,11 +572,6 @@ class CodeGenerator:
 
                 out = ''
 
-                if self.parent.check_needs_allocator(expr_type.subtype):
-                    out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements}, allocator);\n'
-                else:
-                    out = f'{self.parent.indent}{expr}.resize({expr_type.n_elements});\n'
-
                 out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {expr_type.n_elements}; i{array_depth}++) {{\n'
                 self.parent.enter_indent()
                 out += self.emit_decode_fixed_internal(f'{expr}[i{array_depth}]', expr_type.subtype, array_depth + 1)
@@ -642,10 +647,11 @@ class CodeGenerator:
                 if expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements:
                     target_size = expr_type.n_elements
 
-                if self.parent.check_needs_allocator(expr_type.subtype):
-                    out += f'{self.parent.indent}{expr}.resize({target_size}, allocator);\n'
-                else:
-                    out += f'{self.parent.indent}{expr}.resize({target_size});\n'
+                if not (expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements is not None):
+                    if self.parent.check_needs_allocator(expr_type.subtype):
+                        out += f'{self.parent.indent}{expr}.resize({target_size}, allocator);\n'
+                    else:
+                        out += f'{self.parent.indent}{expr}.resize({target_size});\n'
                 out += f'{self.parent.indent}for (size_t i{array_depth} = 0; i{array_depth} < {target_size}; i{array_depth}++)\n'
                 if target_size != 'size':
                     self.parent.enter_indent()
@@ -816,12 +822,13 @@ class CodeGenerator:
                 self.leave_indent()
                 out += f'{self.indent}}}\n\n'
 
-                out += f'{self.indent}void add_{m.name}({self.generate_type(m.type.subtype)} v) {{\n'
-                self.enter_indent()
-                out += f'{self.indent}p_{m.name} = true;\n'
-                out += f'{self.indent}m_{m.name}.push_back(v);\n'
-                self.leave_indent()
-                out += f'{self.indent}}}\n\n'
+                if m.type.n_elements is None:
+                    out += f'{self.indent}void add_{m.name}({self.generate_type(m.type.subtype)} v) {{\n'
+                    self.enter_indent()
+                    out += f'{self.indent}p_{m.name} = true;\n'
+                    out += f'{self.indent}m_{m.name}.push_back(v);\n'
+                    self.leave_indent()
+                    out += f'{self.indent}}}\n\n'
 
         return out
 
