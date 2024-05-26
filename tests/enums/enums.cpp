@@ -16,7 +16,7 @@ int main() {
 	t1.set_bar(Bar::E);
 
 	t1.set_foos(test::make_vector<Foo>(Foo::D, Foo::A, Foo::F, Foo::B));
-	t1.set_bars(test::make_vector<uint8_t>(Bar::E, Bar::B, Bar::A, Bar::C));
+	t1.set_bars(std::array<uint8_t, 4>{Bar::E, Bar::B, Bar::A, Bar::C});
 
 	assert(bragi::message_id<Test> == 1);
 	assert(bragi::head_size<Test> == 128);
@@ -48,6 +48,6 @@ int main() {
 	auto foos = test::make_vector<Foo>(Foo::D, Foo::A, Foo::F, Foo::B);
 	assert(t2->foos() == foos);
 
-	auto bars = test::make_vector<uint8_t>(Bar::E, Bar::B, Bar::A, Bar::C);
+	auto bars = std::array<uint8_t, 4>{Bar::E, Bar::B, Bar::A, Bar::C};
 	assert(t2->bars() == bars);
 }

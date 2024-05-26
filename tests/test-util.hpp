@@ -18,16 +18,8 @@ namespace test {
 
 #ifdef TEST_FRIGG
 
-struct test_allocator {
-	test_allocator(int) {}
-
-	void *allocate(size_t sz) { return operator new(sz); }
-	void free(void *ptr) { operator delete(ptr); }
-	void deallocate(void *ptr, size_t sz) { operator delete(ptr, sz); }
-};
-
 template <typename T>
-using vec_of = frg::vector<T, test_allocator>;
+using vec_of = frg::vector<T, frg::stl_allocator>;
 
 #else
 
@@ -39,7 +31,7 @@ using vec_of = std::vector<T>;
 template <typename T, typename ...Ts>
 auto make_vector(Ts ...ts) {
 #ifdef TEST_FRIGG
-	frg::vector<T, test_allocator> vec{test_allocator{1}};
+	frg::vector<T, frg::stl_allocator> vec{frg::stl_allocator{}};
 
 	(vec.push_back(static_cast<T>(ts)), ...);
 
@@ -51,7 +43,7 @@ auto make_vector(Ts ...ts) {
 
 auto make_string(const char *str) {
 #ifdef TEST_FRIGG
-	return frg::string<test_allocator>{str, test_allocator{1}};
+	return frg::string<frg::stl_allocator>{str, frg::stl_allocator{}};
 #else
 	return std::string{str};
 #endif
@@ -60,7 +52,7 @@ auto make_string(const char *str) {
 #ifdef TEST_FRIGG
 template <template<typename...> typename Msg>
 auto make_msg() {
-	return Msg<test_allocator>{test_allocator{1}};
+	return Msg<frg::stl_allocator>{frg::stl_allocator{}};
 }
 #else
 template <typename Msg>
@@ -73,9 +65,9 @@ auto make_msg() {
 template <template<typename...> typename Msg, typename ...Ts>
 auto parse_with(Ts &&...ts) {
 	if constexpr (sizeof...(ts) == 2)
-		return bragi::parse_head_tail<Msg>(std::forward<Ts>(ts)..., test_allocator{1});
+		return bragi::parse_head_tail<Msg>(std::forward<Ts>(ts)..., frg::stl_allocator{});
 	else
-		return bragi::parse_head_only<Msg>(std::forward<Ts>(ts)..., test_allocator{1});
+		return bragi::parse_head_only<Msg>(std::forward<Ts>(ts)..., frg::stl_allocator{});
 }
 #else
 template <typename Msg, typename ...Ts>
