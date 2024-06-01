@@ -1,4 +1,4 @@
-project('bragi', 'cpp', default_options: ['cpp_std=c++2a'])
+project('bragi', default_options: ['cpp_std=c++2a'])
 
 bragi_inc = include_directories('include')
 bragi_dep = declare_dependency(include_directories: bragi_inc)
@@ -13,5 +13,6 @@ if get_option('install_headers')
 endif
 
 if get_option('build_tests')
+	add_languages('cpp')
 	subdir('tests')
 endif
