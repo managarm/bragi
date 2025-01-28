@@ -737,14 +737,14 @@ class CodeGenerator:
         return out
 
     # Protobuf compatibilty code
-    def emit_serialize_as_string(self, parent):
+    def emit_serialize_as_string(self):
         out = ''
 
         if type(self.stdlib_traits) is FriggTraits:
             out = f'{self.indent}void SerializeToString(frg::string<Allocator> *str) {{\n'
             self.enter_indent()
 
-            out += f'{self.indent}str->resize({parent.head.size});\n'
+            out += f'{self.indent}str->resize(size_of_head());\n'
             out += f'{self.indent}bragi::limited_writer wr{{str->data(), str->size()}};\n\n'
             out += self.emit_assert_that('encode_head(wr)')
 
@@ -754,7 +754,7 @@ class CodeGenerator:
             out = f'{self.indent}std::string SerializeAsString() {{\n'
             self.enter_indent()
 
-            out += f'{self.indent}std::string str(size_t({parent.head.size}), \'\\0\');\n'
+            out += f'{self.indent}std::string str(size_of_head(), \'\\0\');\n'
             out += f'{self.indent}bragi::limited_writer wr{{str.data(), str.size()}};\n\n'
             out += self.emit_assert_that('encode_head(wr)') + '\n'
             out += f'{self.indent}return str;\n'
@@ -902,7 +902,7 @@ class CodeGenerator:
             out += self.emit_part_decoder('tail', None, None)
 
         if self.protobuf_compat:
-            out += self.emit_serialize_as_string(message)
+            out += self.emit_serialize_as_string()
             out += self.emit_parse_from_array(message)
 
         out += self.emit_class_members(all_members)
