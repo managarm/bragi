@@ -6,6 +6,7 @@ bragi_gen = generator(bragi,
 	arguments: [
 		'-o', '@OUTPUT@',
 		'@INPUT@',
+		'cpp',
 		'-l', 'stdc++',
 	],
 	output: '@BASENAME@.bragi.hpp')
@@ -14,6 +15,7 @@ bragi_std_gen = generator(bragi,
 	arguments: [
 		'-o', '@OUTPUT@',
 		'@INPUT@',
+		'cpp',
 		'-l', 'stdc++',
 	],
 	output: '@BASENAME@.bragi.std.hpp')
@@ -22,6 +24,7 @@ bragi_frg_gen = generator(bragi,
 	arguments: [
 		'-o', '@OUTPUT@',
 		'@INPUT@',
+		'cpp',
 		'-l', 'frigg',
 	],
 	output: '@BASENAME@.bragi.frg.hpp')

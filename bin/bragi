@@ -4,17 +4,23 @@ import argparse
 
 from bragi.parser import CompilationUnit
 from bragi.cpp_generator import CodeGenerator as CppCodeGenerator
+from bragi.wireshark_generator import CodeGenerator as WiresharkCodeGenerator
 
 parser = argparse.ArgumentParser(prog = 'bragi', description = 'Bragi IDL to C++ compiler')
 parser.add_argument('input', nargs='+', help='input file', type=argparse.FileType('r'))
 parser.add_argument('-o', '--output', help='output file', type=str)
-parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
-parser.add_argument('--protobuf', help='Generate protobuf compatibilty methods (SerializeAsString/ParseFromArray)', action='store_true')
+subparsers = parser.add_subparsers(required=True, dest='language')
+
+cpp_parser = subparsers.add_parser('cpp')
+cpp_parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
+cpp_parser.add_argument('--protobuf', help='Generate protobuf compatibilty methods (SerializeAsString/ParseFromArray)', action='store_true')
+
+ws_parser = subparsers.add_parser('wireshark')
+
 args = parser.parse_args()
 
 inputs = []
 output = args.output
-lib = args.lib[0]
 
 for source in args.input:
     code = source.read()
@@ -23,7 +29,11 @@ for source in args.input:
     unit.verify()
     inputs.append(unit)
 
-generator = CppCodeGenerator(inputs, lib, protobuf_compat = args.protobuf)
+if(args.language == "cpp"):
+    lib = args.lib[0]
+    generator = CppCodeGenerator(inputs, lib, protobuf_compat = args.protobuf)
+else:
+    generator = WiresharkCodeGenerator(inputs)
 
 with open(output, "w") as o:
     o.write(generator.generate())
