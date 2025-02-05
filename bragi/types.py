@@ -24,6 +24,9 @@ class Type:
         if self.identity is TypeIdentity.INTEGER:
             self.signed = signed
 
+    def __repr__(self):
+        return f'{self.name}'
+
 class TypeRegistry:
     def __init__(self):
         self.types = {
