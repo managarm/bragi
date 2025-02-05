@@ -1,6 +1,8 @@
 from .tokens import *
 from .types import *
 
+import hashlib
+
 class StdlibTraits:
     def needs_allocator(self):
         return False
@@ -79,6 +81,8 @@ class CodeGenerator:
             for thing in unit.tokens:
                 if type(thing) == NamespaceTag:
                     out += self.switch_ns(thing)
+                    protohash = hashlib.shake_128(thing.name.encode('ascii')).hexdigest(4)
+                    out += f'{self.indent}const char protocol_hash[] = "0x{protohash}";\n\n'
                 if type(thing) == UsingTag:
                     out += self.generate_using(thing)
                 if type(thing) == Enum and thing.mode == "enum":
@@ -863,7 +867,7 @@ class CodeGenerator:
                 out += f'{self.indent}{self.generate_type(m.type)} m_{m.name}; bool p_{m.name};\n'
 
         if self.stdlib_traits.needs_allocator():
-            out += f'{self.indent}Allocator allocator;'
+            out += f'{self.indent}Allocator allocator;\n'
 
         return out
 
