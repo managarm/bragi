@@ -9,7 +9,7 @@ class TypeIdentity(enum.Enum):
     STRING = 6
 
 class Type:
-    def __init__(self, name, identity, fixed_size = None, dynamic = False, subtype = None, signed = False, n_elements = None):
+    def __init__(self, name, identity, fixed_size = None, dynamic = False, subtype = None, signed = False, n_elements = None, attributes = {}):
         self.name = name
         self.identity = identity
         self.fixed_size = fixed_size
@@ -17,6 +17,7 @@ class Type:
         self.subtype = subtype
         self.n_elements = None
         self.signed = None
+        self.attributes = attributes
 
         if self.identity is TypeIdentity.ARRAY and n_elements:
             self.n_elements = n_elements
