@@ -41,7 +41,7 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 
 class CodeGenerator:
     def __init__(self, unit, stdlib, protobuf_compat = False):
-        self.unit = unit
+        self.units = unit
         self.protobuf_compat = protobuf_compat
         self.stdlib_traits = None
         self.indent_depth = 0
@@ -75,22 +75,23 @@ class CodeGenerator:
 
         out += '#include <bragi/internals.hpp>\n\n'
 
-        for thing in self.unit.tokens:
-            if type(thing) == NamespaceTag:
-                out += self.switch_ns(thing)
-            if type(thing) == UsingTag:
-                out += self.generate_using(thing)
-            if type(thing) == Enum and thing.mode == "enum":
-                out += self.generate_enum(thing)
-            if type(thing) == Enum and thing.mode == "consts":
-                out += self.generate_consts(thing)
-            if type(thing) == Message:
-                out += self.generate_message(thing)
-            if type(thing) == Struct:
-                out += self.generate_struct(thing)
-            if type(thing) == Group:
-                for m in thing.members:
-                    out += self.generate_message(m)
+        for unit in self.units:
+            for thing in unit.tokens:
+                if type(thing) == NamespaceTag:
+                    out += self.switch_ns(thing)
+                if type(thing) == UsingTag:
+                    out += self.generate_using(thing)
+                if type(thing) == Enum and thing.mode == "enum":
+                    out += self.generate_enum(thing)
+                if type(thing) == Enum and thing.mode == "consts":
+                    out += self.generate_consts(thing)
+                if type(thing) == Message:
+                    out += self.generate_message(thing)
+                if type(thing) == Struct:
+                    out += self.generate_struct(thing)
+                if type(thing) == Group:
+                    for m in thing.members:
+                        out += self.generate_message(m)
 
         out += self.finalize_ns()
 

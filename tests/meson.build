@@ -4,25 +4,25 @@ frigg_dep = subproject('frigg').get_variable('frigg_dep')
 
 bragi_gen = generator(bragi,
 	arguments: [
-		'-l', 'stdc++',
+		'-o', '@OUTPUT@',
 		'@INPUT@',
-		'@OUTPUT@'
+		'-l', 'stdc++',
 	],
 	output: '@BASENAME@.bragi.hpp')
 
 bragi_std_gen = generator(bragi,
 	arguments: [
-		'-l', 'stdc++',
+		'-o', '@OUTPUT@',
 		'@INPUT@',
-		'@OUTPUT@'
+		'-l', 'stdc++',
 	],
 	output: '@BASENAME@.bragi.std.hpp')
 
 bragi_frg_gen = generator(bragi,
 	arguments: [
-		'-l', 'frigg',
+		'-o', '@OUTPUT@',
 		'@INPUT@',
-		'@OUTPUT@'
+		'-l', 'frigg',
 	],
 	output: '@BASENAME@.bragi.frg.hpp')
 
