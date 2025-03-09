@@ -3,25 +3,37 @@
 import argparse
 
 from bragi.parser import CompilationUnit
-from bragi.cpp_generator import CodeGenerator
+from bragi.cpp_generator import CodeGenerator as CppCodeGenerator
+from bragi.wireshark_generator import CodeGenerator as WiresharkCodeGenerator
 
 parser = argparse.ArgumentParser(prog = 'bragi', description = 'Bragi IDL to C++ compiler')
-parser.add_argument('input', nargs=1, help='input file')
-parser.add_argument('output', nargs=1, help='output file')
-parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
-parser.add_argument('--protobuf', help='Generate protobuf compatibilty methods (SerializeAsString/ParseFromArray)', action='store_true')
+parser.add_argument('input', nargs='+', help='input file', type=argparse.FileType('r'))
+parser.add_argument('-o', '--output', help='output file', type=str)
+subparsers = parser.add_subparsers(required=True, dest='language')
+
+cpp_parser = subparsers.add_parser('cpp')
+cpp_parser.add_argument('-l', '--lib', nargs=1, help='C++ library to use', choices=['frigg', 'stdc++'], default='libc++')
+cpp_parser.add_argument('--protobuf', help='Generate protobuf compatibilty methods (SerializeAsString/ParseFromArray)', action='store_true')
+
+ws_parser = subparsers.add_parser('wireshark')
+
 args = parser.parse_args()
 
-source = args.input[0]
-output = args.output[0]
-lib = args.lib[0]
+inputs = []
+output = args.output
 
-with open(source, "r") as f:
-    code = f.read()
-    unit = CompilationUnit(source, code)
+for source in args.input:
+    code = source.read()
+    unit = CompilationUnit(source.name, code)
     unit.process()
     unit.verify()
+    inputs.append(unit)
 
-    generator = CodeGenerator(unit, lib, protobuf_compat = args.protobuf)
-    with open(output, "w") as o:
-        o.write(generator.generate())
+if(args.language == "cpp"):
+    lib = args.lib[0]
+    generator = CppCodeGenerator(inputs, lib, protobuf_compat = args.protobuf)
+else:
+    generator = WiresharkCodeGenerator(inputs)
+
+with open(output, "w") as o:
+    o.write(generator.generate())

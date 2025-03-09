@@ -25,6 +25,8 @@ class Message:
         self.id = id
         self.head = None
         self.tail = None
+        self.body = body
+
         for m in body:
             if self.head is None and type(m) is HeadSection:
                 self.head = m
@@ -45,10 +47,11 @@ class Struct:
         return 'Struct(' + self.name + ') { ' + str(self.members) + ' }'
 
 class MessageMember:
-    def __init__(self, line, column, tag, typename, name):
+    def __init__(self, line, column, attributes, typename, name):
         self.line = line
         self.column = column
-        self.tag = tag
+        self.tag = attributes.get('tag', None)
+        self.format = attributes.get('format', None)
         self.typename = typename
         self.type = None
         self.name = name
@@ -85,14 +88,24 @@ class Tag:
     def __repr__(self):
         return 'tag(' + str(self.value) + ')'
 
+class Format:
+    def __init__(self, line, column, value):
+        self.line = line
+        self.column = column
+        self.value = value
+
+    def __repr__(self):
+        return 'format(' + str(self.value) + ')'
+
 class Enum:
-    def __init__(self, line, column, name, mode, typename, members):
+    def __init__(self, line, column, name, mode, typename, attributes, members):
         self.line = line
         self.column = column
         self.name = name
         self.mode = mode
         self.type = typename
         self.members = members
+        self.attributes = attributes
 
     def __repr__(self):
         return 'Enum(' + self.name + ') { ' + str(self.members) + ' }'

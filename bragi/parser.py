@@ -11,11 +11,13 @@ grammar = r'''
 start: (message | enum | consts | ns | struct | using | group)+
 
 tag: "tag" "(" INT ")"
-attributes: tag?
+format: "@format" "(" NAME ")"
+attributes: tag? format?
+enum_attributes: format?
 
 message: "message" NAME INT message_block
-enum: "enum" NAME enum_block
-consts: "consts" NAME type_name enum_block
+enum: enum_attributes "enum" NAME enum_block
+consts: enum_attributes "consts" NAME type_name enum_block
 ns: "namespace" ESCAPED_STRING ";"
 struct: "struct" NAME "{" message_member* "}"
 using: "using" ESCAPED_STRING "=" ESCAPED_STRING ";"
@@ -90,19 +92,40 @@ class IdlTransformer(Transformer):
         return TagsBlock(meta.line, meta.column, items)
 
     def attributes(self, items):
-        return items[0] if len(items) > 0 else None
+        ret = {}
+
+        for i in items:
+            if type(i) == Tag:
+                ret['tag'] = i
+            elif type(i) == Format:
+                ret['format'] = i
+
+        return ret
 
     @v_args(meta = True)
     def tag(self, items, meta):
-        return Tag(meta.line, meta.column, items[0])
+        return Tag(meta.line, meta.column, items[-1])
+
+    @v_args(meta = True)
+    def format(self, items, meta):
+        return Format(meta.line, meta.column, items[0])
 
     @v_args(meta = True)
     def enum(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], 'enum', TypeName(0, 0, 'int32'), flatten(items[1:]))
+        return Enum(meta.line, meta.column, items[1], 'enum', TypeName(0, 0, 'int32'), items[0], flatten(items[2:]))
 
     @v_args(meta = True)
     def consts(self, items, meta):
-        return Enum(meta.line, meta.column, items[0], 'consts', items[1], flatten(items[2:]))
+        return Enum(meta.line, meta.column, items[1], 'consts', items[2], items[0], flatten(items[3:]))
+
+    def enum_attributes(self, items):
+        ret = {}
+
+        for i in items:
+            if type(i) == Format:
+                ret['format'] = i
+
+        return ret
 
     @v_args(meta = True)
     def using(self, items, meta):
@@ -132,9 +155,6 @@ class IdlTransformer(Transformer):
     @v_args(meta = True)
     def type_size(self, items, meta):
         return '[' + ''.join(items) + ']'
-
-    def attributes(self, items):
-        return items[0] if len(items) > 0 else None
 
     @v_args(meta = True)
     def group(self, items, meta):
@@ -257,7 +277,8 @@ class CompilationUnit:
                         TypeIdentity.CONSTS if t.mode == 'consts' else TypeIdentity.ENUM,
                         fixed_size = subtype.fixed_size,
                         signed = subtype.signed,
-                        subtype = subtype)
+                        subtype = subtype,
+                        attributes = t.attributes)
                 )
 
                 t.type = self.type_registry.get_type(t.name)

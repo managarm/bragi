@@ -1,6 +1,8 @@
 from .tokens import *
 from .types import *
 
+import hashlib
+
 class StdlibTraits:
     def needs_allocator(self):
         return False
@@ -41,7 +43,7 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 
 class CodeGenerator:
     def __init__(self, unit, stdlib, protobuf_compat = False):
-        self.unit = unit
+        self.units = unit
         self.protobuf_compat = protobuf_compat
         self.stdlib_traits = None
         self.indent_depth = 0
@@ -75,22 +77,25 @@ class CodeGenerator:
 
         out += '#include <bragi/internals.hpp>\n\n'
 
-        for thing in self.unit.tokens:
-            if type(thing) == NamespaceTag:
-                out += self.switch_ns(thing)
-            if type(thing) == UsingTag:
-                out += self.generate_using(thing)
-            if type(thing) == Enum and thing.mode == "enum":
-                out += self.generate_enum(thing)
-            if type(thing) == Enum and thing.mode == "consts":
-                out += self.generate_consts(thing)
-            if type(thing) == Message:
-                out += self.generate_message(thing)
-            if type(thing) == Struct:
-                out += self.generate_struct(thing)
-            if type(thing) == Group:
-                for m in thing.members:
-                    out += self.generate_message(m)
+        for unit in self.units:
+            for thing in unit.tokens:
+                if type(thing) == NamespaceTag:
+                    out += self.switch_ns(thing)
+                    protohash = hashlib.shake_128(thing.name.encode('ascii')).hexdigest(4)
+                    out += f'{self.indent}const char protocol_hash[] = "0x{protohash}";\n\n'
+                if type(thing) == UsingTag:
+                    out += self.generate_using(thing)
+                if type(thing) == Enum and thing.mode == "enum":
+                    out += self.generate_enum(thing)
+                if type(thing) == Enum and thing.mode == "consts":
+                    out += self.generate_consts(thing)
+                if type(thing) == Message:
+                    out += self.generate_message(thing)
+                if type(thing) == Struct:
+                    out += self.generate_struct(thing)
+                if type(thing) == Group:
+                    for m in thing.members:
+                        out += self.generate_message(m)
 
         out += self.finalize_ns()
 
@@ -737,14 +742,14 @@ class CodeGenerator:
         return out
 
     # Protobuf compatibilty code
-    def emit_serialize_as_string(self, parent):
+    def emit_serialize_as_string(self):
         out = ''
 
         if type(self.stdlib_traits) is FriggTraits:
             out = f'{self.indent}void SerializeToString(frg::string<Allocator> *str) {{\n'
             self.enter_indent()
 
-            out += f'{self.indent}str->resize({parent.head.size});\n'
+            out += f'{self.indent}str->resize(size_of_head());\n'
             out += f'{self.indent}bragi::limited_writer wr{{str->data(), str->size()}};\n\n'
             out += self.emit_assert_that('encode_head(wr)')
 
@@ -754,7 +759,7 @@ class CodeGenerator:
             out = f'{self.indent}std::string SerializeAsString() {{\n'
             self.enter_indent()
 
-            out += f'{self.indent}std::string str(size_t({parent.head.size}), \'\\0\');\n'
+            out += f'{self.indent}std::string str(size_of_head(), \'\\0\');\n'
             out += f'{self.indent}bragi::limited_writer wr{{str.data(), str.size()}};\n\n'
             out += self.emit_assert_that('encode_head(wr)') + '\n'
             out += f'{self.indent}return str;\n'
@@ -862,7 +867,7 @@ class CodeGenerator:
                 out += f'{self.indent}{self.generate_type(m.type)} m_{m.name}; bool p_{m.name};\n'
 
         if self.stdlib_traits.needs_allocator():
-            out += f'{self.indent}Allocator allocator;'
+            out += f'{self.indent}Allocator allocator;\n'
 
         return out
 
@@ -902,7 +907,7 @@ class CodeGenerator:
             out += self.emit_part_decoder('tail', None, None)
 
         if self.protobuf_compat:
-            out += self.emit_serialize_as_string(message)
+            out += self.emit_serialize_as_string()
             out += self.emit_parse_from_array(message)
 
         out += self.emit_class_members(all_members)
