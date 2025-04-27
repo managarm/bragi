@@ -25,9 +25,9 @@ int main() {
 	assert(static_cast<int32_t>(Foo::A) == 1);
 	assert(static_cast<int32_t>(Foo::B) == 2);
 	assert(static_cast<int32_t>(Foo::C) == 4);
-	assert(static_cast<int32_t>(Foo::D) == 2);
-	assert(static_cast<int32_t>(Foo::E) == 3);
-	assert(static_cast<int32_t>(Foo::F) == 4);
+	assert(static_cast<int32_t>(Foo::D) == 5);
+	assert(static_cast<int32_t>(Foo::E) == 6);
+	assert(static_cast<int32_t>(Foo::F) == 7);
 
 	assert(Bar::A == 1);
 	assert(Bar::B == 2);

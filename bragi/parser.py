@@ -293,6 +293,22 @@ class CompilationUnit:
                 )
 
     def verify_enum(self, enum):
+        if enum.mode == 'enum':
+            values = dict()
+            i = 0
+
+            for m in enum.members:
+                if m.value is not None:
+                    i = m.value
+
+                if i in values:
+                    self.report_message(m, 'error',
+                        f'duplicate enum value {i}',
+                        f'previously defined as {values[i]}')
+
+                values[i] = m.name
+                i += 1
+
         for m in enum.members:
             if type(m) is not EnumMember:
                 self.report_message(m, 'error',
