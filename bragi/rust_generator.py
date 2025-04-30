@@ -89,6 +89,9 @@ class DynamicEncoder:
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
+            if expr_type.identity == TypeIdentity.CONSTS:
+                value_expr = f"{value_expr}.value()"
+
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
                 value_expr = f"{value_expr} as {type_prefix}64"
@@ -110,16 +113,17 @@ class DynamicEncoder:
             out += self.parent.line(
                 f"writer.write_varint({expr}.len() as u64)?;")
 
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            out += self.parent.line(f"for item in {expr} {{")
+            out += self.parent.line(f"for item in {expr}.iter() {{")
 
             self.parent.indent()
 
             item_expr = f"item"
 
-            if expr_type.subtype.identity == TypeIdentity.INTEGER:
+            if expr_type.subtype.identity in (
+                TypeIdentity.ENUM,
+                TypeIdentity.CONSTS,
+                TypeIdentity.INTEGER,
+            ):
                 item_expr = f"*{item_expr}"
 
             out += self.generate_encode_in_dynamic_internal(
@@ -185,7 +189,6 @@ class Decoder:
         if expr_type.identity == TypeIdentity.INTEGER:
             return self.parent.line(set_value(
                 f"reader.read_integer::<{self.parent.generate_type(expr_type)}>()?"))
-
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
             out = ""
 
@@ -199,6 +202,9 @@ class Decoder:
             if is_bitfield:
                 out += self.parent.line(set_value(
                     f"unsafe {{ {expr_type.name}::new(tmp) }}"))
+            elif expr_type.identity == TypeIdentity.CONSTS:
+                out += self.parent.line(
+                    set_value(f"{expr_type.name}::from(tmp)"))
             else:
                 out += self.parent.line(set_value(
                     f"{expr_type.name}::try_from(tmp).unwrap()"))
@@ -217,15 +223,17 @@ class Decoder:
 
             self.parent.indent()
 
+            array_type = f"[{self.parent.generate_type(expr_type.subtype)}; {expr_type.n_elements}]"
+
             out += self.parent.line(
-                f"let mut tmp = [0; {expr_type.n_elements}];")
+                f"let mut tmp: {array_type} = bragi::array_init(|_| Default::default());")
 
             out += self.parent.line(f"for item in tmp.iter_mut() {{")
 
             self.parent.indent()
 
-            out += self.parent.line(
-                f"*item = reader.read_integer::<{self.parent.generate_type(expr_type.subtype)}>()?;")
+            out += self.generate_decode_fixed_internal(
+                "*item", expr_type.subtype, True)
 
             self.parent.dedent()
 
@@ -261,7 +269,7 @@ class Decoder:
                 child_name = snake_case(child.name)
 
                 out += self.generate_decode_dynamic_internal(
-                    f"self.set_{child_name}", child.type)
+                    f"self.set_{child_name}", child.type, 0)
 
                 self.parent.dedent()
 
@@ -281,9 +289,9 @@ class Decoder:
             member_name = snake_case(member.name)
 
             return self.generate_decode_dynamic_internal(
-                f'self.set_{member_name}', member.type)
+                f'self.set_{member_name}', member.type, 0)
 
-    def generate_decode_dynamic_internal(self, setter, expr_type, by_index=False):
+    def generate_decode_dynamic_internal(self, setter, expr_type, array_depth, by_index=False):
         def set_value(value):
             if by_index:
                 return f"{setter} = {value};"
@@ -329,7 +337,7 @@ class Decoder:
                 return self.parent.line(set_value(
                     f"{expr_type.name}::try_from({value_expr}).unwrap()"))
         elif expr_type.identity is TypeIdentity.STRING:
-            return self.parent.line(f"{setter}(reader.read_string()?);")
+            return self.parent.line(set_value(f"reader.read_string()?"))
         elif expr_type.identity is TypeIdentity.ARRAY:
             out = self.parent.line("{")
 
@@ -338,11 +346,16 @@ class Decoder:
             out += self.parent.line(
                 f"let size = reader.read_varint()? as usize;")
 
+            items_var = f"items{array_depth if array_depth > 0 else ''}"
+
             if expr_type.n_elements:
+                array_type = f"[{self.parent.generate_type(expr_type.subtype)}; {expr_type.n_elements}]"
+
                 out += self.parent.line(
-                    f"let mut items = [0; {expr_type.n_elements}];")
+                    f"let mut {items_var}: {array_type} = bragi::array_init(|_| Default::default());")
             else:
-                out += self.parent.line(f"let mut items = Vec::with_capacity(size);")
+                out += self.parent.line(
+                    f"let mut {items_var} = Vec::with_capacity(size);")
 
             index = "i" if expr_type.n_elements else "_"
             out += self.parent.line(f"for {index} in 0..size {{")
@@ -350,17 +363,17 @@ class Decoder:
             self.parent.indent()
 
             if expr_type.n_elements:
-                out += self.generate_decode_fixed_internal(
-                    f"items[{index}]", expr_type.subtype, True)
+                out += self.generate_decode_dynamic_internal(
+                    f"{items_var}[{index}]", expr_type.subtype, array_depth + 1, True)
             else:
                 out += self.generate_decode_dynamic_internal(
-                    f"items.push", expr_type.subtype)
+                    f"{items_var}.push", expr_type.subtype, array_depth + 1)
 
             self.parent.dedent()
 
             out += self.parent.line("}")
 
-            out += self.parent.line(f"{setter}(items);")
+            out += self.parent.line(set_value(items_var))
 
             self.parent.dedent()
 
@@ -373,7 +386,7 @@ class Decoder:
             out += self.parent.line(
                 f"let mut tmp = {expr_type.name}::default();")
             out += self.parent.line(f"reader.read_struct(&mut tmp)?;")
-            out += self.parent.line(f"{setter}(tmp);")
+            out += self.parent.line(set_value(f"tmp"))
 
             self.parent.dedent()
 
@@ -439,24 +452,28 @@ class FixedEncoder:
             is_signed = expr_type.subtype.signed
 
             if is_bitfield:
-                return self.parent.line(f"writer.write_integer({expr}.bits())?;")
+                return self.parent.line(f"writer.write_integer(({expr}).bits())?;")
 
             subtype = self.parent.generate_type(expr_type.subtype)
             expr = f"{expr}"
 
+            if expr_type.identity == TypeIdentity.CONSTS:
+                expr = f"({expr}).value()"
+
             return self.parent.line(
                 f"writer.write_integer::<{subtype}>({expr} as {subtype})?;")
         elif expr_type.identity is TypeIdentity.ARRAY:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            out = self.parent.line(f"for item in {expr} {{")
+            out = self.parent.line(f"for item in {expr}.iter() {{")
 
             self.parent.indent()
 
             item_expr = f"item"
 
-            if expr_type.subtype.identity == TypeIdentity.INTEGER:
+            if expr_type.subtype.identity in (
+                TypeIdentity.ENUM,
+                TypeIdentity.CONSTS,
+                TypeIdentity.INTEGER,
+            ):
                 item_expr = f"*{item_expr}"
 
             out += self.generate_encode_in_fixed_internal(
@@ -538,6 +555,9 @@ class DynamicEncoder:
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
+            if expr_type.identity == TypeIdentity.CONSTS:
+                value_expr = f"{value_expr}.value()"
+
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
                 value_expr = f"{value_expr} as {type_prefix}64"
@@ -555,16 +575,17 @@ class DynamicEncoder:
             out = self.parent.line(
                 f"writer.write_varint({expr}.len() as u64)?;")
 
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            out += self.parent.line(f"for item in {expr} {{")
+            out += self.parent.line(f"for item in {expr}.iter() {{")
 
             self.parent.indent()
 
             item_expr = f"item"
 
-            if expr_type.subtype.identity == TypeIdentity.INTEGER:
+            if expr_type.subtype.identity in (
+                TypeIdentity.ENUM,
+                TypeIdentity.CONSTS,
+                TypeIdentity.INTEGER,
+            ):
                 item_expr = f"*{item_expr}"
 
             out += self.generate_encode_in_dynamic_internal(
@@ -620,8 +641,8 @@ class CodeGenerator:
         elif type_.identity == TypeIdentity.ARRAY:
             subtype = self.generate_type(type_.subtype)
 
-            if type_.fixed_size:
-                return f"[{subtype}; {type_.fixed_size}]"
+            if type_.n_elements:
+                return f"[{subtype}; {type_.n_elements}]"
 
             return f"Vec<{subtype}>"
         elif type_.identity == TypeIdentity.STRUCT:
@@ -666,11 +687,11 @@ class CodeGenerator:
 
         return result
 
-    def generate_calculate_dynamic_size_of_member(self, into, expr, member, as_u64, is_option):
+    def generate_calculate_dynamic_size_of_member(self, into, expr, member, as_type, is_option):
         conv = ""
 
-        if as_u64:
-            conv = f" as u64"
+        if as_type:
+            conv = f" as {as_type}"
 
         if isinstance(member, TagsBlock):
             out = ""
@@ -695,7 +716,7 @@ class CodeGenerator:
                 out += self.line(
                     f"{into} += bragi::size_of_varint({child.tag.value}u64){conv};")
                 out += self.generate_calculate_dynamic_size_of_member(
-                    into, "value", child, as_u64, False)
+                    into, "value", child, as_type, False)
 
                 self.dedent()
 
@@ -706,13 +727,13 @@ class CodeGenerator:
             if is_option:
                 expr = f"{expr}.unwrap()"
 
-            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type, as_u64)
+            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type, as_type)
 
-    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type, as_u64):
+    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type, as_type):
         conv = ""
 
-        if as_u64:
-            conv = f" as u64"
+        if as_type:
+            conv = f" as {as_type}"
 
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
@@ -720,6 +741,9 @@ class CodeGenerator:
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
+
+            if expr_type.identity == TypeIdentity.CONSTS:
+                value_expr = f"{value_expr}.value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -739,6 +763,9 @@ class CodeGenerator:
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
+
+            if expr_type.identity == TypeIdentity.CONSTS:
+                value_expr = f"{value_expr}.value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -768,20 +795,21 @@ class CodeGenerator:
             out += self.line(
                 f"{into} += bragi::size_of_varint({expr}.len() as u64){conv};")
 
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            out += self.line(f"for item in {expr} {{")
+            out += self.line(f"for item in {expr}.iter() {{")
 
             self.indent()
 
             item_expr = f"item"
 
-            if expr_type.subtype.identity == TypeIdentity.INTEGER:
+            if expr_type.subtype.identity in (
+                TypeIdentity.ENUM,
+                TypeIdentity.CONSTS,
+                TypeIdentity.INTEGER,
+            ):
                 item_expr = f"*{item_expr}"
 
             out += self.generate_calculate_dynamic_size_of_member_internal(
-                into, item_expr, expr_type.subtype, as_u64)
+                into, item_expr, expr_type.subtype, as_type)
 
             self.dedent()
 
@@ -805,11 +833,11 @@ class CodeGenerator:
 
         self.indent()
 
-        if what == "head":
-            out += self.line(
-                f"bragi::write_preamble(writer, Self::MESSAGE_ID, self.size_of_tail())?;")
-
         out += self.line(f"let mut writer = bragi::Writer::new(writer);")
+
+        if what == "head":
+            out += self.line(f"writer.write_integer::<u32>(Self::MESSAGE_ID)?;")
+            out += self.line(f"writer.write_integer::<u32>(self.size_of_tail() as u32)?;")
 
         fixed_size = self.calculate_fixed_part_size(
             what, members, parent) if members else None
@@ -827,7 +855,7 @@ class CodeGenerator:
 
             for i, member in enumerate(ptrs):
                 out += self.generate_determine_dyn_offset_for(
-                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i)
+                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i, ptr_type)
 
         if members:
             fixed_enc = FixedEncoder(self)
@@ -970,8 +998,10 @@ class CodeGenerator:
 
         if is_bitfield:
             out += self.line("bragi::generate_bitfield_enum! {")
+        elif enum.mode == "consts":
+            out += self.line(f"bragi::generate_consts! {{")
         else:
-            out += self.line("bragi::generate_enum! {")
+            out += self.line(f"bragi::generate_enum! {{")
 
         self.indent()
 
@@ -1047,7 +1077,7 @@ class CodeGenerator:
                 array_size = ""
 
                 if member.type.fixed_size:
-                    array_size = f"; {member.type.fixed_size}"
+                    array_size = f"; {member.type.n_elements}"
 
                 member_type_ref = f"&[{self.generate_type(member.type.subtype)}{array_size}]"
 
@@ -1098,7 +1128,7 @@ class CodeGenerator:
 
         return out
 
-    def generate_determine_dyn_offset_for(self, skip, prev, member, n):
+    def generate_determine_dyn_offset_for(self, skip, prev, member, n, as_type):
         out = ""
         into = f"dyn_offsets[{n}]"
 
@@ -1112,7 +1142,7 @@ class CodeGenerator:
             member_name = escape_keyword(member_name)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                into, f"self.{member_name}", prev, True, False)
+                into, f"self.{member_name}", prev, as_type, False)
 
         return out
 
@@ -1377,6 +1407,9 @@ class CodeGenerator:
                 output.append(self.generate_struct(token))
             elif isinstance(token, Message):
                 output.append(self.generate_message(token))
+            elif isinstance(token, Group):
+                for member in token.members:
+                    output.append(self.generate_message(member))
             else:
                 output.append(f"// Unknown token: {type(token).__name__}\n")
 
