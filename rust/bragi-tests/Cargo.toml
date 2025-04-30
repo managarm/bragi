@@ -1,0 +1,10 @@
+[package]
+name = "bragi-tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bragi = { path = "../bragi" }
+
+[build-dependencies]
+bragi-build = { path = "../bragi-build" }
