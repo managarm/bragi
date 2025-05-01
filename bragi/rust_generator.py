@@ -1017,7 +1017,7 @@ class CodeGenerator:
 
             member_name = member.name
 
-            if is_bitfield:
+            if is_bitfield or enum.mode == "consts":
                 member_name = snake_case(member_name.lower())
                 member_name = member_name.upper()
             else:
