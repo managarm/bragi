@@ -28,6 +28,6 @@ where
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        Err(format!("Bragi compiler failed:\n{}\n{}", stderr, stdout).into())
+        Err(format!("Bragi compiler failed:\n{stdout}\n{stderr}").into())
     }
 }
