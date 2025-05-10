@@ -934,12 +934,6 @@ class CodeGenerator:
 
             out += self.line("}")
 
-        # if members:
-        #     ptr_type = self.determine_pointer_type(
-        #         what, parent.head.size if what == "head" else None)
-
-        #     out += f'{self.indent}{ptr_type} ptr; (void)ptr;\n'
-
         dec = Decoder(self)
 
         if members:
