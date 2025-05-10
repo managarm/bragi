@@ -244,14 +244,14 @@ pub fn read_preamble<R: Read + Seek>(reader: &mut R) -> Result<Preamble> {
     Ok(preamble)
 }
 
-/// Writes the preamble of a message to the given writer.
-pub fn write_preamble<W: Write>(writer: &mut W, preamble: Preamble) -> Result<()> {
-    let mut writer = Writer::new(writer);
+/// Reads only the message head from the given reader and returns the final message.
+/// The message is default initialized before decoding the head.
+pub fn read_head<M: Default + Message, H: Read + Seek>(head_reader: &mut H) -> Result<M> {
+    let mut message = M::default();
 
-    writer.write_integer(preamble.id())?;
-    writer.write_integer(preamble.tail_size())?;
+    message.decode_head(head_reader)?;
 
-    Ok(())
+    Ok(message)
 }
 
 /// Reads the message head and tail from the given readers and returns the final message.
@@ -268,36 +268,81 @@ pub fn read_head_tail<M: Default + Message, H: Read + Seek, T: Read + Seek>(
     Ok(message)
 }
 
-/// Reads only the message head from the given reader and returns the final message.
+/// Reads the message preamble from the given buffer and returns the preamble.
+pub fn preamble_from_bytes(bytes: &[u8]) -> Result<Preamble> {
+    let mut cursor = Cursor::new(bytes);
+    read_preamble(&mut cursor)
+}
+
+/// Reads the message head from the given buffer and returns the final message.
 /// The message is default initialized before decoding the head.
-pub fn read_head_only<M: Default + Message, H: Read + Seek>(head_reader: &mut H) -> Result<M> {
+pub fn head_from_bytes<M: Default + Message>(bytes: &[u8]) -> Result<M> {
+    read_head(&mut Cursor::new(bytes))
+}
+
+/// Reads the message head and tail from the given buffers and returns the final message.
+/// The message is default initialized before decoding the head and tail.
+pub fn head_tail_from_bytes<M: Default + Message>(
+    head_bytes: &[u8],
+    tail_bytes: &[u8],
+) -> Result<M> {
     let mut message = M::default();
 
-    message.decode_head(head_reader)?;
+    message.decode_head(&mut Cursor::new(head_bytes))?;
+    message.decode_tail(&mut Cursor::new(tail_bytes))?;
 
     Ok(message)
 }
 
-/// Writes the message head and tail and returns the final head and tail buffers.
-/// The head and tail buffers are returned as a tuple of byte vectors.
-pub fn write_head_tail<M: Message>(message: &M) -> Result<(Vec<u8>, Vec<u8>)> {
-    let mut head_cursor = Cursor::new(vec![0; message.size_of_head()]);
-    let mut tail_cursor = Cursor::new(vec![0; message.size_of_tail()]);
+/// Writes the preamble of a message to the given writer.
+pub fn write_preamble<W: Write>(writer: &mut W, preamble: Preamble) -> Result<()> {
+    let mut writer = Writer::new(writer);
 
-    message.encode_head(&mut head_cursor)?;
-    message.encode_tail(&mut tail_cursor)?;
+    writer.write_integer(preamble.id())?;
+    writer.write_integer(preamble.tail_size())?;
 
-    Ok((head_cursor.into_inner(), tail_cursor.into_inner()))
+    Ok(())
 }
 
-/// Writes only the message head and returns the final buffer.
-/// The buffer is returned as a byte vector.
-pub fn write_head_only<M: Message>(message: &M) -> Result<Vec<u8>> {
-    let mut head_cursor = Cursor::new(vec![0; message.size_of_head()]);
+/// Writes the message head to the given writer.
+pub fn write_head<M: Message, W: Write>(writer: &mut W, message: &M) -> Result<()> {
+    message.encode_head(writer)
+}
 
-    message.encode_head(&mut head_cursor)?;
+/// Writes the message head and tail to the given writers.
+pub fn write_head_tail<M: Message, H: Write, T: Write>(
+    head_writer: &mut H,
+    tail_writer: &mut T,
+    message: &M,
+) -> Result<()> {
+    message.encode_head(head_writer)?;
+    message.encode_tail(tail_writer)?;
 
-    Ok(head_cursor.into_inner())
+    Ok(())
+}
+
+/// Write the message preamble to a temporary buffer and returns the written bytes.
+pub fn preamble_to_bytes(preamble: &Preamble) -> Result<Vec<u8>> {
+    let mut cursor = Cursor::new(Vec::with_capacity(8));
+
+    write_preamble(&mut cursor, *preamble).map(|_| cursor.into_inner())
+}
+
+/// Writes the message head to a temporary buffer and returns the written bytes.
+pub fn head_to_bytes<M: Message>(message: &M) -> Result<Vec<u8>> {
+    let mut cursor = Cursor::new(Vec::with_capacity(M::HEAD_SIZE));
+
+    write_head(&mut cursor, message).map(|_| cursor.into_inner())
+}
+
+/// Writes the message head and tail to temporary buffers and returns the written bytes
+/// as a tuple of byte vectors.
+pub fn head_tail_to_bytes<M: Message>(message: &M) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut head_cursor = Cursor::new(Vec::with_capacity(M::HEAD_SIZE));
+    let mut tail_cursor = Cursor::new(Vec::new());
+
+    write_head_tail(&mut head_cursor, &mut tail_cursor, message)
+        .map(|_| (head_cursor.into_inner(), tail_cursor.into_inner()))
 }
 
 #[macro_export]

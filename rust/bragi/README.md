@@ -32,7 +32,7 @@ fn encode_an_example_message() -> std::io::Result<Vec<u8>> {
     // Create an example message
     let msg = bindings::ExampleMessage::new(1337, 420);
     // Encode an example message into a byte buffer.
-    let buffer = bragi::write_head_only(&msg)?;
+    let buffer = bragi::message_head_to_bytes(&msg)?;
 
     Ok(buffer)
 }
@@ -41,11 +41,9 @@ fn encode_an_example_message() -> std::io::Result<Vec<u8>> {
 ### Decoding a message from a `Vec<u8>`
 
 ```rs
-fn decode_an_example_message(buf: &[u8]) -> std::io::Result<()> {
-    // Create a reader
-    let mut cursor = std::io::Cursor::new(buf);
+fn decode_an_example_message(buffer: &[u8]) -> std::io::Result<()> {
     // Decode an example message
-    let msg: bindings::ExampleMessage = bragi::read_head_only(&mut cursor)?;
+    let msg: bindings::ExampleMessage = bragi::head_from_bytes(buffer)?;
     // Print the decoded message
     println!("a: {}", msg.a());
     println!("b: {}", msg.b());
