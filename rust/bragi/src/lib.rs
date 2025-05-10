@@ -390,36 +390,35 @@ macro_rules! generate_bitfield_enum {
                 pub const $variant: Self = Self { bits: $value };
             )*
 
-            /// Creates a new OpenMode with no bits set.
+            #[doc = concat!("Creates a new [`", stringify!($name), "`] with no bits set.")]
             pub const fn empty() -> Self {
                 Self { bits: 0 }
             }
 
-            /// Creates a new OpenMode with the given bits.
-            /// # Safety
-            /// This function is unsafe because it allows creating a
-            /// bitfield with arbitrary bits. The caller must ensure that
-            /// the bits are valid for the bitfield.
+            #[doc = concat!("Creates a new [`", stringify!($name), "`] with the given bits set.")]
+            #[doc = "# Safety"]
+            #[doc = "This function is unsafe because it allows creating a bitfield with arbitrary bits set."]
+            #[doc = "The caller must ensure that the bits are valid for the given bitfield."]
             pub const unsafe fn new(bits: u32) -> Self {
                 Self { bits }
             }
 
-            /// Returns the bits of the OpenMode.
+            #[doc = concat!("Returns the bits of the [`", stringify!($name), "`].")]
             pub const fn bits(&self) -> u32 {
                 self.bits
             }
 
-            /// Returns whether the given bit is set.
+            #[doc = concat!("Checks if the given bits are set in the [`", stringify!($name), "`].")]
             pub const fn is_set(&self, other: Self) -> bool {
                 (self.bits & other.bits) == other.bits
             }
 
-            /// Returns a new OpenMode with the given bits set.
+            #[doc = concat!("Returns a new [`", stringify!($name), "`] with the given bits set.")]
             pub const fn set(&self, other: Self) -> Self {
                 Self { bits: self.bits | other.bits }
             }
 
-            /// Returns a new OpenMode with the given bits cleared.
+            #[doc = concat!("Returns a new [`", stringify!($name), "`] with the given bits cleared.")]
             pub const fn clear(&self, other: Self) -> Self {
                 Self { bits: self.bits & !other.bits }
             }
