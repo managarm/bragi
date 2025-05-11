@@ -1,0 +1,8 @@
+[package]
+name = "bragi-build"
+description = "Helper function for invoking the bragi code generator from a build.rs file"
+version = "0.1.0"
+edition = "2024"
+authors = ["iretq <me@iretq.dev>"]
+license = "MIT"
+repository = "https://github.com/managarm/bragi"
