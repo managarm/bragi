@@ -20,25 +20,26 @@ ws_parser = subparsers.add_parser('wireshark')
 
 rust_parser = subparsers.add_parser('rust')
 
-args = parser.parse_args()
+def main():
+	args = parser.parse_args()
 
-inputs = []
-output = args.output
+	inputs = []
+	output = args.output
 
-for source in args.input:
-    code = source.read()
-    unit = CompilationUnit(source.name, code)
-    unit.process()
-    unit.verify()
-    inputs.append(unit)
+	for source in args.input:
+		code = source.read()
+		unit = CompilationUnit(source.name, code)
+		unit.process()
+		unit.verify()
+		inputs.append(unit)
 
-if args.language == 'cpp':
-    lib = args.lib[0]
-    generator = CppCodeGenerator(inputs, lib, protobuf_compat = args.protobuf)
-elif args.language == 'wireshark':
-    generator = WiresharkCodeGenerator(inputs)
-elif args.language == 'rust':
-    generator = RustCodeGenerator(inputs)
+	if args.language == 'cpp':
+		lib = args.lib[0]
+		generator = CppCodeGenerator(inputs, lib, protobuf_compat = args.protobuf)
+	elif args.language == 'wireshark':
+		generator = WiresharkCodeGenerator(inputs)
+	elif args.language == 'rust':
+		generator = RustCodeGenerator(inputs)
 
-with open(output, "w") as o:
-    o.write(generator.generate())
+	with open(output, "w") as o:
+		o.write(generator.generate())
