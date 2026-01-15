@@ -513,12 +513,13 @@ class CodeGenerator:
         if not tail_members:
             return ''
 
-        out = f'{self.indent}local value_size = 0\n'
+        out = ''
         head_size = self.calculate_fixed_part_size('head', message.head.members, message) - 8
         tail_member_num = 0
         for m in tail_members:
             out += f'{self.indent}local dynoff{tail_member_num} = tvb({head_size + (tail_member_num * 8)}, 4):le_uint()\n'
             out += f'{self.indent}local tail = tvb({head_size} + dynoff{tail_member_num}, tvb:len() - ({head_size} + dynoff{tail_member_num}))\n'
+            out += f'{self.indent}local value_size = 0\n'
             if m.type.identity == TypeIdentity.STRING:
                 out += f'{self.indent}local len_size, len = parse_varint(tail)\n'
                 out += f'{self.indent}if len_size < tail:len() then\n'
@@ -546,8 +547,6 @@ class CodeGenerator:
                 out += f'{self.indent}end\n'
             else:
                 print(f"unhandled tail member {m.type} {m.name}")
-            if (tail_member_num + 1) < len(tail_members):
-                out += f'{self.indent}tail = tail(len_size + len, tail:len() - (len_size + len))\n'
             tail_member_num += 1
 
         return out
