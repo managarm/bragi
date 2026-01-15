@@ -289,6 +289,9 @@ class CodeGenerator:
     def is_simple_integer(self, t):
         return t in ['byte', 'char', 'int8', 'uint8', 'int16', 'uint16', 'int32', 'uint32', 'int64', 'uint64']
 
+    def is_unsigned_integer(self, t):
+        return t in ['byte', 'uint8', 'uint16', 'uint32', 'uint64']
+
     def bits_in_integer(self, t):
         if t.name in ['char', 'int8', 'uint8']:
             return 8
@@ -392,7 +395,7 @@ class CodeGenerator:
             if field_type == 'char':
                 int_format = "base.HEX"
 
-            if m.format and m.format.value == "hex":
+            if m.format and m.format.value == "hex" and self.is_unsigned_integer(field_type):
                 int_format = "base.HEX"
             elif m.format and m.format.value == "octal":
                 int_format = "base.OCT"
