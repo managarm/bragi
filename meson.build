@@ -1,4 +1,4 @@
-project('bragi', default_options: ['cpp_std=c++2a'])
+project('bragi', default_options: ['cpp_std=c++2a'], meson_version: '>=1.3.0')
 
 bragi_inc = include_directories('include')
 bragi_dep = declare_dependency(include_directories: bragi_inc)
