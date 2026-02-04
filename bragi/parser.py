@@ -65,30 +65,30 @@ class IdlTransformer(Transformer):
         return items
 
     @v_args(meta = True)
-    def message(self, items, meta):
+    def message(self, meta, items):
         return Message(meta.line, meta.column, items[0], items[1], flatten(items[2:]))
 
     @v_args(meta = True)
-    def struct(self, items, meta):
+    def struct(self, meta, items):
         return Struct(meta.line, meta.column, items[0], flatten([items[1:]]) if len(items) > 1 else [])
 
     def message_block(self, items):
         return items
 
     @v_args(meta = True)
-    def head_section(self, items, meta):
+    def head_section(self, meta, items):
         return HeadSection(meta.line, meta.column, int(items[0]), items[1:])
 
     @v_args(meta = True)
-    def tail_section(self, items, meta):
+    def tail_section(self, meta, items):
         return TailSection(meta.line, meta.column, items)
 
     @v_args(meta = True)
-    def message_member(self, items, meta):
+    def message_member(self, meta, items):
         return MessageMember(meta.line, meta.column, items[0], items[1], items[2])
 
     @v_args(meta = True)
-    def tags_block(self, items, meta):
+    def tags_block(self, meta, items):
         return TagsBlock(meta.line, meta.column, items)
 
     def attributes(self, items):
@@ -103,19 +103,19 @@ class IdlTransformer(Transformer):
         return ret
 
     @v_args(meta = True)
-    def tag(self, items, meta):
+    def tag(self, meta, items):
         return Tag(meta.line, meta.column, items[-1])
 
     @v_args(meta = True)
-    def format(self, items, meta):
+    def format(self, meta, items):
         return Format(meta.line, meta.column, items[0])
 
     @v_args(meta = True)
-    def enum(self, items, meta):
+    def enum(self, meta, items):
         return Enum(meta.line, meta.column, items[1], 'enum', TypeName(0, 0, 'int32'), items[0], flatten(items[2:]))
 
     @v_args(meta = True)
-    def consts(self, items, meta):
+    def consts(self, meta, items):
         return Enum(meta.line, meta.column, items[1], 'consts', items[2], items[0], flatten(items[3:]))
 
     def enum_attributes(self, items):
@@ -128,16 +128,16 @@ class IdlTransformer(Transformer):
         return ret
 
     @v_args(meta = True)
-    def using(self, items, meta):
+    def using(self, meta, items):
         return UsingTag(meta.line, meta.column, items[1][1:-1], items[0][1:-1])
 
     @v_args(meta = True)
-    def ns(self, items, meta):
+    def ns(self, meta, items):
         return NamespaceTag(meta.line, meta.column, items[0][1:-1])
 
     @v_args(meta = True)
-    def enum_member(self, items, meta):
-        return EnumMember(meta.line, meta.column, items[0], int(items[1]) if len(items) > 1 else None)
+    def enum_member(self, meta, items):
+        return EnumMember(meta.line, meta.column, items[0], int(items[1]) if items[1] else None)
 
     def enum_block(self, items):
         return items
@@ -149,15 +149,15 @@ class IdlTransformer(Transformer):
         return str(items)
 
     @v_args(meta = True)
-    def type_name(self, items, meta):
+    def type_name(self, meta, items):
         return TypeName(meta.line , meta.column, ''.join(items))
 
     @v_args(meta = True)
-    def type_size(self, items, meta):
+    def type_size(self, meta, items):
         return '[' + ''.join(items) + ']'
 
     @v_args(meta = True)
-    def group(self, items, meta):
+    def group(self, meta, items):
         return Group(meta.line, meta.column, items)
 
 def token_name_to_human_readable(token):
