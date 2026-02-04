@@ -3,13 +3,11 @@ name = "bragi"
 version = "0.7"
 authors = [
     # Original implementation by Kacper Słomiński.
-    {name = "The Managarm Project", email = "info@managarm.org"}
+    { name = "The Managarm Project", email = "info@managarm.org" },
 ]
 license = "MIT"
 
-dependencies = [
-    "lark-parser"
-]
+dependencies = ["lark-parser"]
 
 [project.urls]
 Repository = "https://github.com/managarm/bragi"
