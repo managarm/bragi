@@ -177,6 +177,7 @@ pub trait Struct {
 #[doc(hidden)]
 pub trait Message {
     const MESSAGE_ID: u32;
+    const HAS_TAIL: bool;
     const HEAD_SIZE: usize;
 
     fn size_of_head(&self) -> usize;
