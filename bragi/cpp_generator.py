@@ -884,6 +884,7 @@ class CodeGenerator:
         out += f'{self.indent}struct {message.name} {{\n'
         self.enter_indent()
         out += f'{self.indent}static constexpr uint32_t message_id = {message.id};\n'
+        out += f'{self.indent}static constexpr bool has_tail = {"true" if message.tail else "false"};\n'
         out += f'{self.indent}static constexpr size_t head_size = {message.head.size};\n\n'
 
         out += self.emit_constructor(message.name, all_members)

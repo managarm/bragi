@@ -1337,6 +1337,7 @@ class CodeGenerator:
         self.indent()
 
         out += self.line(f"const MESSAGE_ID: u32 = {message.id};")
+        out += self.line(f"const HAS_TAIL: bool = {'true' if message.tail else 'false'};")
         out += self.line(f"const HEAD_SIZE: usize = {message.head.size};")
 
         head_size_of = ""
