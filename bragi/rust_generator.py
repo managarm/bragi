@@ -301,7 +301,7 @@ class Decoder:
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
                 return self.parent.line(set_value(
-                    f"reader.read_integer::<u8>()?"))
+                    f"reader.read_integer::<{self.parent.generate_type(expr_type)}>()?"))
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
@@ -531,7 +531,7 @@ class DynamicEncoder:
     def generate_encode_in_dynamic_internal(self, expr, expr_type):
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
-                return self.parent.line(f"writer.write_integer::<u8>({expr})?;")
+                return self.parent.line(f"writer.write_integer::<{self.parent.generate_type(expr_type)}>({expr})?;")
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
