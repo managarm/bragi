@@ -35,117 +35,6 @@ def camel_case(name: str) -> str:
     return "".join(word.capitalize() for word in name.split("_"))
 
 
-class DynamicEncoder:
-    def __init__(self, parent):
-        self.parent = parent
-
-    def generate_encode_in_dynamic(self, expr, member):
-        if isinstance(member, TagsBlock):
-            out = ""
-
-            for child in member.members:
-                child_name = snake_case(child.name)
-                child_name = escape_keyword(child_name)
-
-                expr = f"self.{child_name}"
-
-                if child.type.identity in (
-                    TypeIdentity.STRING,
-                    TypeIdentity.ARRAY,
-                    TypeIdentity.STRUCT,
-                ):
-                    expr = f"{expr}.as_ref()"
-
-                out += self.parent.line(f"if let Some(value) = {expr} {{")
-
-                self.parent.indent()
-
-                out += self.parent.line(
-                    f"writer.write_varint({child.tag.value}u64)?;")
-
-                out += self.generate_encode_in_dynamic(f"value", child, False)
-
-                self.parent.dedent()
-
-                out += self.parent.line("}")
-
-            return out + self.parent.line(f"writer.write_varint(0u64)?;")
-        else:
-            return self.generate_encode_in_dynamic_internal(expr, member.type)
-
-    def generate_encode_in_dynamic_internal(self, expr, expr_type):
-        if expr_type.identity == TypeIdentity.INTEGER:
-            return self.parent.line(
-                f"writer.write_integer::<{self.parent.generate_type(expr_type)}>({expr})?;")
-        elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
-            format_attr = expr_type.attributes.get("format")
-            is_bitfield = format_attr and format_attr.value == "bitfield"
-
-            if is_bitfield:
-                return self.parent.line(
-                    f"writer.write_varint({expr}.bits() as u64)?;")
-
-            is_signed = expr_type.subtype.signed
-            subtype_size = expr_type.subtype.fixed_size
-            value_expr = f"{expr}"
-
-            if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
-
-            if subtype_size < 8:
-                type_prefix = "i" if is_signed else "u"
-                value_expr = f"{value_expr} as {type_prefix}64"
-
-            if is_signed:
-                value_expr = f"{value_expr} as u64"
-
-            return self.parent.line(f"writer.write_varint({value_expr})?;")
-        elif expr_type.identity is TypeIdentity.STRING:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            return self.parent.line(f"writer.write_string({expr})?;")
-        elif expr_type.identity is TypeIdentity.ARRAY:
-            out = self.parent.line("{")
-
-            self.parent.indent()
-
-            out += self.parent.line(
-                f"writer.write_varint({expr}.len() as u64)?;")
-
-            out += self.parent.line(f"for item in {expr}.iter() {{")
-
-            self.parent.indent()
-
-            item_expr = f"item"
-
-            if expr_type.subtype.identity in (
-                TypeIdentity.ENUM,
-                TypeIdentity.CONSTS,
-                TypeIdentity.INTEGER,
-            ):
-                item_expr = f"*{item_expr}"
-
-            out += self.generate_encode_in_dynamic_internal(
-                item_expr, expr_type.subtype)
-
-            self.parent.dedent()
-
-            out += self.parent.line("}")
-
-            self.parent.dedent()
-
-            return out + self.parent.line("}")
-        elif expr_type.identity is TypeIdentity.STRUCT:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            return self.parent.line(f"writer.write_struct({expr})?;")
-        else:
-            raise RuntimeError(
-                f"Unexpected variable type identity: {expr_type.identity}")
-
-
 class Decoder:
     def __init__(self, parent):
         self.parent = parent
@@ -741,9 +630,6 @@ class CodeGenerator:
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
-
-            if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
