@@ -8,6 +8,7 @@ bragi::include_binding! {
     mod preamble_bragi = "preamble.rs",
     mod structs_bragi = "struct.rs",
     mod using_bragi = "using.rs",
+    mod varint_bragi = "varint.rs",
 }
 
 #[cfg(test)]
@@ -450,6 +451,29 @@ mod structs {
         assert_eq!(foos[1].c(), 0xCAFEBABE);
         assert_eq!(foos[0].d(), &[1, 2, 3, 4]);
         assert_eq!(foos[1].d(), &[5, 6, 7, 8]);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod varint {
+    use super::varint_bragi::*;
+
+    #[test]
+    fn test1() -> std::io::Result<()> {
+        let values = Values::new(1 << 48, 1 << 49, (1 << 56) - 1, 1 << 56, -1);
+        let msg = Test1::new(values);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test1 = bragi::head_from_bytes(&buffer)?;
+        let values = msg.values();
+
+        assert_eq!(values.seven_bytes(), 1 << 48);
+        assert_eq!(values.eight_bytes_low(), 1 << 49);
+        assert_eq!(values.eight_bytes_high(), (1 << 56) - 1);
+        assert_eq!(values.nine_bytes(), 1 << 56);
+        assert_eq!(values.negative(), -1);
 
         Ok(())
     }

@@ -149,7 +149,7 @@ impl<'a, R: Read + Seek> Reader<'a, R> {
         }
 
         let mut value: u64 = 0;
-        let shift = if n_bytes < 9 { 8 - (n_bytes % 8) } else { 0 };
+        let shift = if n_bytes < 9 { (8 - n_bytes) % 8 } else { 0 };
 
         for (i, byte) in bytes.iter().enumerate().skip(1) {
             value |= (*byte as u64) << ((i - 1) * 8);

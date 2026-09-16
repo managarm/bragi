@@ -1,0 +1,12 @@
+struct Values {
+	uint64 seven_bytes;
+	uint64 eight_bytes_low;
+	uint64 eight_bytes_high;
+	uint64 nine_bytes;
+	int64 negative;
+}
+
+message Test1 1 {
+head(256):
+	Values values;
+}

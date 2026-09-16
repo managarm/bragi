@@ -141,7 +141,7 @@ struct deserializer {
 			return false;
 
 		uint64_t ret = 0;
-		uint64_t shift = n_bytes < 9 ? 8 - (n_bytes % 8) : 0;
+		uint64_t shift = n_bytes < 9 ? (8 - n_bytes) % 8 : 0;
 
 		for(int i = 1; i < n_bytes; i++) {
 			ret |= static_cast<uint64_t>(d[i]) << ((i - 1) * 8);
