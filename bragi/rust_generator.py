@@ -751,6 +751,16 @@ class CodeGenerator:
         out += self.line(f"let mut writer = bragi::Writer::new(writer);")
 
         if what == "head":
+            out += self.line(f"if self.size_of_head() > Self::HEAD_SIZE {{")
+
+            self.indent()
+
+            out += self.line(
+                f"return Err({invalid_data('Head is larger than the declared head size')});")
+
+            self.dedent()
+
+            out += self.line("}")
             out += self.line(f"writer.write_integer::<u32>(Self::MESSAGE_ID)?;")
             out += self.line(f"writer.write_integer::<u32>(self.size_of_tail() as u32)?;")
 

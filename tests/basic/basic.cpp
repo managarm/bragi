@@ -26,6 +26,16 @@ void test_unknown_tag() {
 	assert(!test::parse_with<Test>(head_buf));
 }
 
+void test_oversized_head() {
+	auto t1 = test::make_msg<Test>();
+	t1.set_c(test::make_string(std::string(bragi::head_size<Test>, 'x').c_str()));
+
+	assert(t1.size_of_head() > bragi::head_size<Test>);
+
+	std::vector<std::byte> head_buf(t1.size_of_head());
+	assert(!bragi::write_head_only(t1, head_buf));
+}
+
 int main() {
 	auto t1 = test::make_msg<Test>();
 	t1.set_a(0xDEADBEEF);
@@ -51,4 +61,5 @@ int main() {
 	auto test = test::make_vector<uint8_t>(1, 2, 3, 4, 5, 6, 7, 8, 9, 0);
 	assert(t2->e() == test);
 	test_unknown_tag();
+	test_oversized_head();
 }

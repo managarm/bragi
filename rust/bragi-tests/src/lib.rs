@@ -172,6 +172,18 @@ mod basic {
     use bragi::Message;
 
     #[test]
+    fn oversized_head() -> std::io::Result<()> {
+        let msg = Test::new(0, 0, "x".repeat(Test::HEAD_SIZE));
+
+        assert!(msg.size_of_head() > Test::HEAD_SIZE);
+
+        let err = bragi::head_to_bytes(&msg).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
+
+    #[test]
     fn basic_test() -> std::io::Result<()> {
         let mut msg = Test::new(0xDEADBEEF, 0xDEADBEEFCAFEBABE, "Hello, world!".into());
 

@@ -486,6 +486,9 @@ class CodeGenerator:
         out += f'{self.indent}(void)wr;\n'
         out += f'{self.indent}bragi::serializer sr; (void)sr;\n'
 
+        if what == 'head':
+            out += self.emit_stmt_checked('(size_of_head() <= head_size)')
+
         fixed_size = self.calculate_fixed_part_size(what, members, parent) if members else None
         ptrs = [i for i in members if self.is_dyn_pointer(i)] if members else None
         ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None) if parent else None
