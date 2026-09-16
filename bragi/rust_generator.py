@@ -35,6 +35,11 @@ def camel_case(name: str) -> str:
     return "".join(word.capitalize() for word in name.split("_"))
 
 
+def invalid_data(message):
+    return (f"std::io::Error::new(std::io::ErrorKind::InvalidData, "
+            f"\"{message}\")")
+
+
 class Decoder:
     def __init__(self, parent):
         self.parent = parent
@@ -96,7 +101,8 @@ class Decoder:
                     set_value(f"{expr_type.name}::from(tmp)"))
             else:
                 out += self.parent.line(set_value(
-                    f"{expr_type.name}::try_from(tmp).unwrap()"))
+                    f"{expr_type.name}::try_from(tmp).map_err(|_| "
+                    f"{invalid_data('Invalid ' + expr_type.name + ' value')})?"))
 
             return out
         elif expr_type.identity is TypeIdentity.STRING:
@@ -236,7 +242,8 @@ class Decoder:
                     f"unsafe {{ {expr_type.name}::new({value_expr}) }}"))
             else:
                 return self.parent.line(set_value(
-                    f"{expr_type.name}::try_from({value_expr}).unwrap()"))
+                    f"{expr_type.name}::try_from({value_expr}).map_err(|_| "
+                    f"{invalid_data('Invalid ' + expr_type.name + ' value')})?"))
         elif expr_type.identity is TypeIdentity.STRING:
             return self.parent.line(set_value(f"reader.read_string()?"))
         elif expr_type.identity is TypeIdentity.ARRAY:

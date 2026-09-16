@@ -329,6 +329,42 @@ mod enums {
 
         Ok(())
     }
+
+    #[test]
+    fn invalid_enum_test() -> std::io::Result<()> {
+        let msg = Test::new(Foo::D, Bar::E, vec![], [Bar::A; 4]);
+        let mut buffer = bragi::head_to_bytes(&msg)?;
+
+        // `foo` is the first head member, so it starts right after the preamble.
+        buffer[8] = 99;
+
+        let err = bragi::head_from_bytes::<Test>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_enum_in_dynamic_part_test() -> std::io::Result<()> {
+        let nested = Nested::new(
+            Bar::E,
+            vec![Bar::A, Bar::C, Bar::F],
+            Baz::B,
+            vec![Baz::A, Baz::B],
+            Foo::C,
+            vec![Foo::A, Foo::F],
+        );
+        let mut buffer = bragi::head_to_bytes(&Test2::new(nested))?;
+
+        // `foo` is a varint inside the struct body; 63 is not a Foo value.
+        assert_eq!(buffer[20], (2 * (Foo::C as u8) + 1));
+        buffer[20] = 2 * 63 + 1;
+
+        let err = bragi::head_from_bytes::<Test2>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
