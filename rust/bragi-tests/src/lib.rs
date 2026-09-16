@@ -142,6 +142,30 @@ mod arrays {
 }
 
 #[cfg(test)]
+mod array_bounds {
+    use super::arrays_bragi::*;
+
+    #[test]
+    fn oversized_fixed_array() -> std::io::Result<()> {
+        let msg = Test4::new(
+            vec![[1, 2, 3, 4, 5]],
+            [vec![], vec![], vec![], vec![], vec![]],
+        );
+        let mut buffer = bragi::head_to_bytes(&msg)?;
+
+        // Two head pointers follow the preamble, then arr1's outer length and
+        // the inner length of its first element.
+        assert_eq!(buffer[11], 2 * 5 + 1);
+        buffer[11] = 2 * 9 + 1;
+
+        let err = bragi::head_from_bytes::<Test4>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod basic {
     use super::basic_bragi::*;
 

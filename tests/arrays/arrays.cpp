@@ -175,6 +175,21 @@ void test5_2() {
 	assert(t2->arr() == arr);
 }
 
+void test_oversized() {
+	auto t1 = test::make_msg<Test4>();
+	t1.add_arr1(std::array<uint8_t, 5>{1, 2, 3, 4, 5});
+
+	std::vector<std::byte> head_buf(t1.size_of_head());
+	assert(bragi::write_head_only(t1, head_buf));
+
+	// Two head pointers follow the preamble, then arr1's outer length and the
+	// inner length of its first element.
+	assert(static_cast<uint8_t>(head_buf[11]) == (2 * 5 + 1));
+	head_buf[11] = static_cast<std::byte>(2 * 9 + 1);
+
+	assert(!test::parse_with<Test4>(head_buf));
+}
+
 int main() {
 	test1();
 	test2();
@@ -182,4 +197,5 @@ int main() {
 	test4();
 	test5_1();
 	test5_2();
+	test_oversized();
 }

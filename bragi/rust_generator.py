@@ -259,6 +259,16 @@ class Decoder:
             if expr_type.n_elements:
                 array_type = f"[{self.parent.generate_type(expr_type.subtype)}; {expr_type.n_elements}]"
 
+                out += self.parent.line(f"if size > {expr_type.n_elements} {{")
+
+                self.parent.indent()
+
+                out += self.parent.line(
+                    f"return Err({invalid_data('Array is longer than its declared size')});")
+
+                self.parent.dedent()
+
+                out += self.parent.line("}")
                 out += self.parent.line(
                     f"let mut {items_var}: {array_type} = bragi::array_init(|_| Default::default());")
             else:

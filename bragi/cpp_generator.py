@@ -651,6 +651,7 @@ class CodeGenerator:
 
                 if expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements:
                     target_size = expr_type.n_elements
+                    out += self.parent.emit_stmt_checked(f'(size <= {expr_type.n_elements})')
 
                 if not (expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements is not None):
                     if self.parent.check_needs_allocator(expr_type.subtype):
