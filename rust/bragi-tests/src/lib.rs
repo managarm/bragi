@@ -9,6 +9,7 @@ bragi::include_binding! {
     mod structs_bragi = "struct.rs",
     mod using_bragi = "using.rs",
     mod varint_bragi = "varint.rs",
+    mod bitfield_bragi = "bitfield.rs",
 }
 
 #[cfg(test)]
@@ -509,6 +510,33 @@ mod varint {
         assert_eq!(values.eight_bytes_high(), (1 << 56) - 1);
         assert_eq!(values.nine_bytes(), 1 << 56);
         assert_eq!(values.negative(), -1);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod bitfield {
+    use super::bitfield_bragi::*;
+
+    #[test]
+    fn test1() -> std::io::Result<()> {
+        let holder = Holder::new(
+            Flags8::A | Flags8::C,
+            Flags32::D | Flags32::E,
+            Flags64::F | Flags64::G,
+        );
+        let msg = Test1::new(Flags8::B, Flags32::E, Flags64::G, holder);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test1 = bragi::head_from_bytes(&buffer)?;
+
+        assert_eq!(msg.f8(), Flags8::B);
+        assert_eq!(msg.f32(), Flags32::E);
+        assert_eq!(msg.f64(), Flags64::G);
+        assert_eq!(msg.holder().f8(), Flags8::A | Flags8::C);
+        assert_eq!(msg.holder().f32(), Flags32::D | Flags32::E);
+        assert_eq!(msg.holder().f64(), Flags64::F | Flags64::G);
 
         Ok(())
     }

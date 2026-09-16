@@ -38,7 +38,8 @@ tests = [
 	'struct',
 	'using',
 	'group',
-	'varint'
+	'varint',
+	'bitfield'
 ]
 
 foreach t : tests

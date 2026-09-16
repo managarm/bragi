@@ -445,12 +445,12 @@ macro_rules! generate_bitfield_enum {
             #[doc = "# Safety"]
             #[doc = "This function is unsafe because it allows creating a bitfield with arbitrary bits set."]
             #[doc = "The caller must ensure that the bits are valid for the given bitfield."]
-            pub const unsafe fn new(bits: u32) -> Self {
+            pub const unsafe fn new(bits: $underlying) -> Self {
                 Self { bits }
             }
 
             #[doc = concat!("Returns the bits of the [`", stringify!($name), "`].")]
-            pub const fn bits(&self) -> u32 {
+            pub const fn bits(&self) -> $underlying {
                 self.bits
             }
 
