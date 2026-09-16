@@ -64,6 +64,16 @@ void test2() {
 	auto t1 = test::make_msg<Test2>();
 	t1.set_nested(n);
 
+	// The encoding is pinned so that a divergence between the C++ and Rust
+	// generators shows up as a test failure rather than on the wire.
+	static const uint8_t golden[] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x03, 0x07, 0x01, 0x04, 0x04, 0x02, 0x40, 0x05, 0x03, 0x02, 0x40, 0x09, 0x05, 0x03, 0x0f};
+
+	std::vector<std::byte> exact_buf(t1.size_of_head());
+	assert(bragi::write_head_only(t1, exact_buf));
+	assert(exact_buf.size() == sizeof(golden));
+	for (size_t i = 0; i < exact_buf.size(); i++)
+		assert(static_cast<uint8_t>(exact_buf[i]) == golden[i]);
+
 	std::vector<std::byte> head_buf(128);
 	assert(bragi::write_head_only(t1, head_buf));
 

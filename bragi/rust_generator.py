@@ -205,6 +205,21 @@ class Decoder:
 
             return self.parent.line(set_value(value_expr))
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
+            format_attr = expr_type.attributes.get("format")
+            is_bitfield = format_attr and format_attr.value == "bitfield"
+
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                subtype = self.parent.generate_type(expr_type.subtype)
+                value_expr = f"reader.read_integer::<{subtype}>()?"
+
+                if is_bitfield:
+                    return self.parent.line(set_value(
+                        f"unsafe {{ {expr_type.name}::new({value_expr}) }}"))
+
+                return self.parent.line(set_value(
+                    f"{expr_type.name}::from({value_expr})"))
+
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"reader.read_varint()?"
@@ -215,9 +230,6 @@ class Decoder:
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
                 value_expr = f"{value_expr} as {type_prefix}{subtype_size * 8}"
-
-            format_attr = expr_type.attributes.get("format")
-            is_bitfield = format_attr and format_attr.value == "bitfield"
 
             if is_bitfield:
                 return self.parent.line(set_value(
@@ -437,8 +449,17 @@ class DynamicEncoder:
             format_attr = expr_type.attributes.get("format")
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
+            value = f"({expr}).bits()" if is_bitfield else f"({expr}).value()"
+
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                subtype = self.parent.generate_type(expr_type.subtype)
+
+                return self.parent.line(
+                    f"writer.write_integer::<{subtype}>({value})?;")
+
             if is_bitfield:
-                return self.parent.line(f"writer.write_varint(({expr}).bits() as u64)?;")
+                return self.parent.line(f"writer.write_varint({value} as u64)?;")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
@@ -632,6 +653,10 @@ class CodeGenerator:
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
             format_attr = expr_type.attributes.get("format")
             is_bitfield = format_attr and format_attr.value == "bitfield"
+
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                return self.line(f"{into} += 1;")
 
             if is_bitfield:
                 return self.line(f"{into} += bragi::size_of_varint(({expr}).bits() as u64);")

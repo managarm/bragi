@@ -306,6 +306,17 @@ mod enums {
         let msg = Test2::new(nested);
 
         let buffer = bragi::head_to_bytes(&msg)?;
+
+        // The encoding is pinned so that a divergence between the C++ and Rust
+        // generators shows up as a test failure rather than on the wire.
+        assert_eq!(
+            buffer,
+            [
+                0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x03, 0x07, 0x01, 0x04, 0x04,
+                0x02, 0x40, 0x05, 0x03, 0x02, 0x40, 0x09, 0x05, 0x03, 0x0f
+            ]
+        );
+
         let msg: Test2 = bragi::head_from_bytes(&buffer)?;
         let nested = msg.nested();
 
