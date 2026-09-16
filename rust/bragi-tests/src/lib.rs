@@ -292,6 +292,32 @@ mod enums {
 
         Ok(())
     }
+
+    #[test]
+    fn nested_test() -> std::io::Result<()> {
+        let nested = Nested::new(
+            Bar::E,
+            vec![Bar::A, Bar::C, Bar::F],
+            Baz::B,
+            vec![Baz::A, Baz::B],
+            Foo::C,
+            vec![Foo::A, Foo::F],
+        );
+        let msg = Test2::new(nested);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test2 = bragi::head_from_bytes(&buffer)?;
+        let nested = msg.nested();
+
+        assert_eq!(nested.bar(), Bar::E);
+        assert_eq!(nested.bars(), &[Bar::A, Bar::C, Bar::F]);
+        assert_eq!(nested.baz(), Baz::B);
+        assert_eq!(nested.bazs(), &[Baz::A, Baz::B]);
+        assert_eq!(nested.foo(), Foo::C);
+        assert_eq!(nested.foos(), &[Foo::A, Foo::F]);
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

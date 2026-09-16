@@ -10,7 +10,7 @@
 
 #include <cassert>
 
-int main() {
+void test1() {
 	auto t1 = test::make_msg<Test>();
 	t1.set_foo(Foo::D);
 	t1.set_bar(Bar::E);
@@ -50,4 +50,38 @@ int main() {
 
 	auto bars = std::array<uint8_t, 4>{Bar::E, Bar::B, Bar::A, Bar::C};
 	assert(t2->bars() == bars);
+}
+
+void test2() {
+	auto n = test::make_msg<Nested>();
+	n.set_bar(Bar::E);
+	n.set_bars(test::make_vector<uint8_t>(Bar::A, Bar::C, Bar::F));
+	n.set_baz(Baz::B);
+	n.set_bazs(test::make_vector<uint32_t>(Baz::A, Baz::B));
+	n.set_foo(Foo::C);
+	n.set_foos(test::make_vector<Foo>(Foo::A, Foo::F));
+
+	auto t1 = test::make_msg<Test2>();
+	t1.set_nested(n);
+
+	std::vector<std::byte> head_buf(128);
+	assert(bragi::write_head_only(t1, head_buf));
+
+	auto t2 = test::parse_with<Test2>(head_buf);
+	assert(t2);
+
+	assert(t2->nested().bar() == Bar::E);
+	auto bars = test::make_vector<uint8_t>(Bar::A, Bar::C, Bar::F);
+	assert(t2->nested().bars() == bars);
+	assert(t2->nested().baz() == Baz::B);
+	auto bazs = test::make_vector<uint32_t>(Baz::A, Baz::B);
+	assert(t2->nested().bazs() == bazs);
+	assert(t2->nested().foo() == Foo::C);
+	auto foos = test::make_vector<Foo>(Foo::A, Foo::F);
+	assert(t2->nested().foos() == foos);
+}
+
+int main() {
+	test1();
+	test2();
 }

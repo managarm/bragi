@@ -438,14 +438,14 @@ class DynamicEncoder:
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
             if is_bitfield:
-                return self.parent.line(f"writer.write_varint({expr}.bits() as u64)?;")
+                return self.parent.line(f"writer.write_varint(({expr}).bits() as u64)?;")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
             if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
+                value_expr = f"({value_expr}).value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -634,14 +634,14 @@ class CodeGenerator:
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
             if is_bitfield:
-                return self.line(f"{into} += bragi::size_of_varint({expr}.bits() as u64);")
+                return self.line(f"{into} += bragi::size_of_varint(({expr}).bits() as u64);")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
             if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
+                value_expr = f"({value_expr}).value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"

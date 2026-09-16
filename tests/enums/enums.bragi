@@ -23,3 +23,22 @@ head(128):
 	Foo[] foos;
 	Bar[4] bars;
 }
+
+consts Baz uint32 {
+	A = 1,
+	B = 4096
+}
+
+struct Nested {
+	Bar bar;
+	Bar[] bars;
+	Baz baz;
+	Baz[] bazs;
+	Foo foo;
+	Foo[] foos;
+}
+
+message Test2 2 {
+head(128):
+	Nested nested;
+}
