@@ -612,7 +612,7 @@ class CodeGenerator:
 
                 out += f'{self.parent.indent}default:\n'
                 self.parent.enter_indent()
-                out += self.parent.emit_assert_that('!"Unknown tag!"')
+                out += f'{self.parent.indent}return false;\n'
                 self.parent.leave_indent()
 
                 self.parent.leave_indent()
