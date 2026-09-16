@@ -454,6 +454,41 @@ mod structs {
 
         Ok(())
     }
+
+    #[test]
+    fn test4() -> std::io::Result<()> {
+        let foo = Foo::new(
+            "Hello".into(),
+            0xDEADBEEFCAFEBABE,
+            0xDEADBEEF,
+            vec![1, 2, 3, 4],
+        );
+        let msg = Test4::new(foo, "World".into());
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test4 = bragi::head_from_bytes(&buffer)?;
+
+        assert_eq!(msg.foo().a(), "Hello");
+        assert_eq!(msg.s(), "World");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test5() -> std::io::Result<()> {
+        let bar = Bar::new("Hello".into(), 1);
+        let msg = Test5::new(0xDEADBEEF, bar, "World".into());
+
+        let (head, tail) = bragi::head_tail_to_bytes(&msg)?;
+        let msg: Test5 = bragi::head_tail_from_bytes(&head, &tail)?;
+
+        assert_eq!(msg.x(), 0xDEADBEEF);
+        assert_eq!(msg.bar().a(), "Hello");
+        assert_eq!(msg.bar().b(), 1);
+        assert_eq!(msg.s(), "World");
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

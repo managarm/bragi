@@ -327,7 +327,7 @@ class FixedEncoder:
     def generate_encode_in_fixed_internal(self, expr, expr_type, is_tags, ptr_type):
         if is_tags or expr_type.dynamic:
             out = self.parent.line(
-                f"writer.write_integer::<{ptr_type}>(dyn_offsets[{self.nth_dynamic}])?;")
+                f"writer.write_integer::<{ptr_type}>(dyn_offsets[{self.nth_dynamic}] as {ptr_type})?;")
 
             self.nth_dynamic += 1
 
@@ -576,12 +576,7 @@ class CodeGenerator:
 
         return result
 
-    def generate_calculate_dynamic_size_of_member(self, into, expr, member, as_type, is_option):
-        conv = ""
-
-        if as_type:
-            conv = f" as {as_type}"
-
+    def generate_calculate_dynamic_size_of_member(self, into, expr, member, is_option):
         if isinstance(member, TagsBlock):
             out = ""
 
@@ -603,27 +598,22 @@ class CodeGenerator:
                 self.indent()
 
                 out += self.line(
-                    f"{into} += bragi::size_of_varint({child.tag.value}u64){conv};")
+                    f"{into} += bragi::size_of_varint({child.tag.value}u64);")
                 out += self.generate_calculate_dynamic_size_of_member(
-                    into, "value", child, as_type, False)
+                    into, "value", child, False)
 
                 self.dedent()
 
                 out += self.line("}")
 
-            return out + self.line(f"{into} += bragi::size_of_varint(0u64){conv};")
+            return out + self.line(f"{into} += bragi::size_of_varint(0u64);")
         else:
             if is_option:
                 expr = f"{expr}.unwrap()"
 
-            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type, as_type)
+            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type)
 
-    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type, as_type):
-        conv = ""
-
-        if as_type:
-            conv = f" as {as_type}"
-
+    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type):
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
                 return self.line(f"{into} += 1;")
@@ -638,13 +628,13 @@ class CodeGenerator:
             if is_signed:
                 expr = f"{expr} as u64"
 
-            return self.line(f"{into} += bragi::size_of_varint({expr}){conv};")
+            return self.line(f"{into} += bragi::size_of_varint({expr});")
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
             format_attr = expr_type.attributes.get("format")
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
             if is_bitfield:
-                return self.line(f"{into} += bragi::size_of_varint({expr}.bits() as u64){conv};")
+                return self.line(f"{into} += bragi::size_of_varint({expr}.bits() as u64);")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
@@ -660,15 +650,15 @@ class CodeGenerator:
             if is_signed:
                 value_expr = f"{value_expr} as u64"
 
-            return self.line(f"{into} += bragi::size_of_varint({value_expr}){conv};")
+            return self.line(f"{into} += bragi::size_of_varint({value_expr});")
         elif expr_type.identity is TypeIdentity.STRING:
             out = self.line("{")
 
             self.indent()
 
             out += self.line(f"let bytes = {expr}.as_bytes();")
-            out += self.line(f"{into} += bragi::size_of_varint(bytes.len() as u64){conv};")
-            out += self.line(f"{into} += bytes.len(){conv};")
+            out += self.line(f"{into} += bragi::size_of_varint(bytes.len() as u64);")
+            out += self.line(f"{into} += bytes.len();")
 
             self.dedent()
 
@@ -679,7 +669,7 @@ class CodeGenerator:
             self.indent()
 
             out += self.line(
-                f"{into} += bragi::size_of_varint({expr}.len() as u64){conv};")
+                f"{into} += bragi::size_of_varint({expr}.len() as u64);")
 
             out += self.line(f"for item in {expr}.iter() {{")
 
@@ -695,7 +685,7 @@ class CodeGenerator:
                 item_expr = f"*{item_expr}"
 
             out += self.generate_calculate_dynamic_size_of_member_internal(
-                into, item_expr, expr_type.subtype, as_type)
+                into, item_expr, expr_type.subtype)
 
             self.dedent()
 
@@ -705,9 +695,6 @@ class CodeGenerator:
 
             return out + self.line("}")
         elif expr_type.identity is TypeIdentity.STRUCT:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
             return self.line(f"{into} += {expr}.size_of_body();")
         else:
             raise RuntimeError(
@@ -737,11 +724,11 @@ class CodeGenerator:
 
         if ptrs:
             out += self.line(
-                f"let mut dyn_offsets = [0{ptr_type}; {len(ptrs)}];")
+                f"let mut dyn_offsets = [0usize; {len(ptrs)}];")
 
             for i, member in enumerate(ptrs):
                 out += self.generate_determine_dyn_offset_for(
-                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i, ptr_type)
+                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i)
 
         if members:
             fixed_enc = FixedEncoder(self)
@@ -1008,7 +995,7 @@ class CodeGenerator:
 
         return out
 
-    def generate_determine_dyn_offset_for(self, skip, prev, member, n, as_type):
+    def generate_determine_dyn_offset_for(self, skip, prev, member, n):
         out = ""
         into = f"dyn_offsets[{n}]"
 
@@ -1022,7 +1009,7 @@ class CodeGenerator:
             member_name = escape_keyword(member_name)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                into, f"self.{member_name}", prev, as_type, False)
+                into, f"self.{member_name}", prev, False)
 
         return out
 
@@ -1051,7 +1038,7 @@ class CodeGenerator:
                 is_option = self.is_type_optional(member.type)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                "size", expr, member, False, is_option)
+                "size", expr, member, is_option)
 
         out += self.line("size")
 
@@ -1089,7 +1076,7 @@ class CodeGenerator:
                 is_option = self.is_type_optional(member.type)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                "size", expr, member, False, is_option)
+                "size", expr, member, is_option)
 
         out += self.line("size")
 

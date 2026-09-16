@@ -124,8 +124,54 @@ void test3() {
 	assert(t2->baz().foos()[1].d() == d2);
 }
 
+void test4() {
+	auto f = test::make_msg<Foo>();
+	f.set_a(test::make_string("Hello"));
+	f.set_b(0xDEADBEEFCAFEBABE);
+	f.set_c(0xDEADBEEF);
+	f.set_d(test::make_vector<uint8_t>(1, 2, 3, 4));
+
+	auto t1 = test::make_msg<Test4>();
+	t1.set_foo(f);
+	t1.set_s(test::make_string("World"));
+
+	std::vector<std::byte> head_buf(128);
+	assert(bragi::write_head_only(t1, head_buf));
+
+	auto t2 = test::parse_with<Test4>(head_buf);
+	assert(t2);
+
+	assert(t2->foo().a() == test::make_string("Hello"));
+	assert(t2->s() == test::make_string("World"));
+}
+
+void test5() {
+	auto b = test::make_msg<Bar>();
+	b.set_a(test::make_string("Hello"));
+	b.set_b(1);
+
+	auto t1 = test::make_msg<Test5>();
+	t1.set_x(0xDEADBEEF);
+	t1.set_bar(b);
+	t1.set_s(test::make_string("World"));
+
+	std::vector<std::byte> head_buf(128);
+	std::vector<std::byte> tail_buf(t1.size_of_tail());
+	assert(bragi::write_head_tail(t1, head_buf, tail_buf));
+
+	auto t2 = test::parse_with<Test5>(head_buf, tail_buf);
+	assert(t2);
+
+	assert(t2->x() == 0xDEADBEEF);
+	assert(t2->bar().a() == test::make_string("Hello"));
+	assert(t2->bar().b() == 1);
+	assert(t2->s() == test::make_string("World"));
+}
+
 int main() {
 	test1();
 	test2();
 	test3();
+	test4();
+	test5();
 }

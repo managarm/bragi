@@ -409,7 +409,7 @@ class CodeGenerator:
 
         def emit_encode_in_fixed_internal(self, expr, expr_type, is_tags, ptr_type, array_depth):
             if is_tags or expr_type.dynamic:
-                out = self.parent.emit_stmt_checked(f'sr.write_integer<{ptr_type}>(wr, dyn_offs[{self.nth_dynamic}])')
+                out = self.parent.emit_stmt_checked(f'sr.write_integer<{ptr_type}>(wr, static_cast<{ptr_type}>(dyn_offs[{self.nth_dynamic}]))')
                 self.nth_dynamic += 1
                 return out
             elif expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
@@ -492,7 +492,7 @@ class CodeGenerator:
 
         if ptrs:
             if len(ptrs) > 0:
-                out += f'{self.indent}{ptr_type} dyn_offs[{len(ptrs)}];\n'
+                out += f'{self.indent}size_t dyn_offs[{len(ptrs)}];\n'
 
         out += '\n'
 
