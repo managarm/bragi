@@ -35,115 +35,9 @@ def camel_case(name: str) -> str:
     return "".join(word.capitalize() for word in name.split("_"))
 
 
-class DynamicEncoder:
-    def __init__(self, parent):
-        self.parent = parent
-
-    def generate_encode_in_dynamic(self, expr, member):
-        if isinstance(member, TagsBlock):
-            out = ""
-
-            for child in member.members:
-                child_name = snake_case(child.name)
-                child_name = escape_keyword(child_name)
-
-                expr = f"self.{child_name}"
-
-                if child.type.identity in (
-                    TypeIdentity.STRING,
-                    TypeIdentity.ARRAY,
-                    TypeIdentity.STRUCT,
-                ):
-                    expr = f"{expr}.as_ref()"
-
-                out += self.parent.line(f"if let Some(value) = {expr} {{")
-
-                self.parent.indent()
-
-                out += self.parent.line(
-                    f"writer.write_varint({child.tag.value}u64)?;")
-
-                out += self.generate_encode_in_dynamic(f"value", child, False)
-
-                self.parent.dedent()
-
-                out += self.parent.line("}")
-
-            return out + self.parent.line(f"writer.write_varint(0u64)?;")
-        else:
-            return self.generate_encode_in_dynamic_internal(expr, member.type)
-
-    def generate_encode_in_dynamic_internal(self, expr, expr_type):
-        if expr_type.identity == TypeIdentity.INTEGER:
-            return self.parent.line(
-                f"writer.write_integer::<{self.parent.generate_type(expr_type)}>({expr})?;")
-        elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
-            format_attr = expr_type.attributes.get("format")
-            is_bitfield = format_attr and format_attr.value == "bitfield"
-
-            if is_bitfield:
-                return self.parent.line(
-                    f"writer.write_varint({expr}.bits() as u64)?;")
-
-            is_signed = expr_type.subtype.signed
-            subtype_size = expr_type.subtype.fixed_size
-            value_expr = f"{expr}"
-
-            if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
-
-            if subtype_size < 8:
-                type_prefix = "i" if is_signed else "u"
-                value_expr = f"{value_expr} as {type_prefix}64"
-
-            if is_signed:
-                value_expr = f"{value_expr} as u64"
-
-            return self.parent.line(f"writer.write_varint({value_expr})?;")
-        elif expr_type.identity is TypeIdentity.STRING:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            return self.parent.line(f"writer.write_string({expr})?;")
-        elif expr_type.identity is TypeIdentity.ARRAY:
-            out = self.parent.line("{")
-
-            self.parent.indent()
-
-            out += self.parent.line(
-                f"writer.write_varint({expr}.len() as u64)?;")
-
-            out += self.parent.line(f"for item in {expr}.iter() {{")
-
-            self.parent.indent()
-
-            item_expr = f"item"
-
-            if expr_type.subtype.identity in (
-                TypeIdentity.ENUM,
-                TypeIdentity.CONSTS,
-                TypeIdentity.INTEGER,
-            ):
-                item_expr = f"*{item_expr}"
-
-            out += self.generate_encode_in_dynamic_internal(
-                item_expr, expr_type.subtype)
-
-            self.parent.dedent()
-
-            out += self.parent.line("}")
-
-            self.parent.dedent()
-
-            return out + self.parent.line("}")
-        elif expr_type.identity is TypeIdentity.STRUCT:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
-            return self.parent.line(f"writer.write_struct({expr})?;")
-        else:
-            raise RuntimeError(
-                f"Unexpected variable type identity: {expr_type.identity}")
+def invalid_data(message):
+    return (f"std::io::Error::new(std::io::ErrorKind::InvalidData, "
+            f"\"{message}\")")
 
 
 class Decoder:
@@ -207,7 +101,8 @@ class Decoder:
                     set_value(f"{expr_type.name}::from(tmp)"))
             else:
                 out += self.parent.line(set_value(
-                    f"{expr_type.name}::try_from(tmp).unwrap()"))
+                    f"{expr_type.name}::try_from(tmp).map_err(|_| "
+                    f"{invalid_data('Invalid ' + expr_type.name + ' value')})?"))
 
             return out
         elif expr_type.identity is TypeIdentity.STRING:
@@ -301,7 +196,7 @@ class Decoder:
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
                 return self.parent.line(set_value(
-                    f"reader.read_integer::<u8>()?"))
+                    f"reader.read_integer::<{self.parent.generate_type(expr_type)}>()?"))
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
@@ -316,6 +211,21 @@ class Decoder:
 
             return self.parent.line(set_value(value_expr))
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
+            format_attr = expr_type.attributes.get("format")
+            is_bitfield = format_attr and format_attr.value == "bitfield"
+
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                subtype = self.parent.generate_type(expr_type.subtype)
+                value_expr = f"reader.read_integer::<{subtype}>()?"
+
+                if is_bitfield:
+                    return self.parent.line(set_value(
+                        f"unsafe {{ {expr_type.name}::new({value_expr}) }}"))
+
+                return self.parent.line(set_value(
+                    f"{expr_type.name}::from({value_expr})"))
+
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"reader.read_varint()?"
@@ -327,15 +237,13 @@ class Decoder:
                 type_prefix = "i" if is_signed else "u"
                 value_expr = f"{value_expr} as {type_prefix}{subtype_size * 8}"
 
-            format_attr = expr_type.attributes.get("format")
-            is_bitfield = format_attr and format_attr.value == "bitfield"
-
             if is_bitfield:
                 return self.parent.line(set_value(
                     f"unsafe {{ {expr_type.name}::new({value_expr}) }}"))
             else:
                 return self.parent.line(set_value(
-                    f"{expr_type.name}::try_from({value_expr}).unwrap()"))
+                    f"{expr_type.name}::try_from({value_expr}).map_err(|_| "
+                    f"{invalid_data('Invalid ' + expr_type.name + ' value')})?"))
         elif expr_type.identity is TypeIdentity.STRING:
             return self.parent.line(set_value(f"reader.read_string()?"))
         elif expr_type.identity is TypeIdentity.ARRAY:
@@ -351,6 +259,16 @@ class Decoder:
             if expr_type.n_elements:
                 array_type = f"[{self.parent.generate_type(expr_type.subtype)}; {expr_type.n_elements}]"
 
+                out += self.parent.line(f"if size > {expr_type.n_elements} {{")
+
+                self.parent.indent()
+
+                out += self.parent.line(
+                    f"return Err({invalid_data('Array is longer than its declared size')});")
+
+                self.parent.dedent()
+
+                out += self.parent.line("}")
                 out += self.parent.line(
                     f"let mut {items_var}: {array_type} = bragi::array_init(|_| Default::default());")
             else:
@@ -438,7 +356,7 @@ class FixedEncoder:
     def generate_encode_in_fixed_internal(self, expr, expr_type, is_tags, ptr_type):
         if is_tags or expr_type.dynamic:
             out = self.parent.line(
-                f"writer.write_integer::<{ptr_type}>(dyn_offsets[{self.nth_dynamic}])?;")
+                f"writer.write_integer::<{ptr_type}>(dyn_offsets[{self.nth_dynamic}] as {ptr_type})?;")
 
             self.nth_dynamic += 1
 
@@ -531,7 +449,7 @@ class DynamicEncoder:
     def generate_encode_in_dynamic_internal(self, expr, expr_type):
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
-                return self.parent.line(f"writer.write_integer::<u8>({expr})?;")
+                return self.parent.line(f"writer.write_integer::<{self.parent.generate_type(expr_type)}>({expr})?;")
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
@@ -548,15 +466,24 @@ class DynamicEncoder:
             format_attr = expr_type.attributes.get("format")
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
+            value = f"({expr}).bits()" if is_bitfield else f"({expr}).value()"
+
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                subtype = self.parent.generate_type(expr_type.subtype)
+
+                return self.parent.line(
+                    f"writer.write_integer::<{subtype}>({value})?;")
+
             if is_bitfield:
-                return self.parent.line(f"writer.write_varint({expr}.bits() as u64)?;")
+                return self.parent.line(f"writer.write_varint({value} as u64)?;")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
             if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
+                value_expr = f"({value_expr}).value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -687,12 +614,7 @@ class CodeGenerator:
 
         return result
 
-    def generate_calculate_dynamic_size_of_member(self, into, expr, member, as_type, is_option):
-        conv = ""
-
-        if as_type:
-            conv = f" as {as_type}"
-
+    def generate_calculate_dynamic_size_of_member(self, into, expr, member, is_option):
         if isinstance(member, TagsBlock):
             out = ""
 
@@ -714,36 +636,28 @@ class CodeGenerator:
                 self.indent()
 
                 out += self.line(
-                    f"{into} += bragi::size_of_varint({child.tag.value}u64){conv};")
+                    f"{into} += bragi::size_of_varint({child.tag.value}u64);")
                 out += self.generate_calculate_dynamic_size_of_member(
-                    into, "value", child, as_type, False)
+                    into, "value", child, False)
 
                 self.dedent()
 
                 out += self.line("}")
 
-            return out + self.line(f"{into} += bragi::size_of_varint(0u64){conv};")
+            return out + self.line(f"{into} += bragi::size_of_varint(0u64);")
         else:
             if is_option:
                 expr = f"{expr}.unwrap()"
 
-            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type, as_type)
+            return self.generate_calculate_dynamic_size_of_member_internal(into, expr, member.type)
 
-    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type, as_type):
-        conv = ""
-
-        if as_type:
-            conv = f" as {as_type}"
-
+    def generate_calculate_dynamic_size_of_member_internal(self, into, expr, expr_type):
         if expr_type.identity == TypeIdentity.INTEGER:
             if expr_type.fixed_size == 1:
                 return self.line(f"{into} += 1;")
 
             is_signed = expr_type.signed
             subtype_size = expr_type.fixed_size
-
-            if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -752,20 +666,24 @@ class CodeGenerator:
             if is_signed:
                 expr = f"{expr} as u64"
 
-            return self.line(f"{into} += bragi::size_of_varint({expr}){conv};")
+            return self.line(f"{into} += bragi::size_of_varint({expr});")
         elif expr_type.identity in (TypeIdentity.ENUM, TypeIdentity.CONSTS):
             format_attr = expr_type.attributes.get("format")
             is_bitfield = format_attr and format_attr.value == "bitfield"
 
+            if (expr_type.identity == TypeIdentity.CONSTS
+                    and expr_type.subtype.fixed_size == 1):
+                return self.line(f"{into} += 1;")
+
             if is_bitfield:
-                return self.line(f"{into} += bragi::size_of_varint({expr}.bits() as u64){conv};")
+                return self.line(f"{into} += bragi::size_of_varint(({expr}).bits() as u64);")
 
             is_signed = expr_type.subtype.signed
             subtype_size = expr_type.subtype.fixed_size
             value_expr = f"{expr}"
 
             if expr_type.identity == TypeIdentity.CONSTS:
-                value_expr = f"{value_expr}.value()"
+                value_expr = f"({value_expr}).value()"
 
             if subtype_size < 8:
                 type_prefix = "i" if is_signed else "u"
@@ -774,15 +692,15 @@ class CodeGenerator:
             if is_signed:
                 value_expr = f"{value_expr} as u64"
 
-            return self.line(f"{into} += bragi::size_of_varint({value_expr}){conv};")
+            return self.line(f"{into} += bragi::size_of_varint({value_expr});")
         elif expr_type.identity is TypeIdentity.STRING:
             out = self.line("{")
 
             self.indent()
 
             out += self.line(f"let bytes = {expr}.as_bytes();")
-            out += self.line(f"{into} += bragi::size_of_varint(bytes.len() as u64){conv};")
-            out += self.line(f"{into} += bytes.len(){conv};")
+            out += self.line(f"{into} += bragi::size_of_varint(bytes.len() as u64);")
+            out += self.line(f"{into} += bytes.len();")
 
             self.dedent()
 
@@ -793,7 +711,7 @@ class CodeGenerator:
             self.indent()
 
             out += self.line(
-                f"{into} += bragi::size_of_varint({expr}.len() as u64){conv};")
+                f"{into} += bragi::size_of_varint({expr}.len() as u64);")
 
             out += self.line(f"for item in {expr}.iter() {{")
 
@@ -809,7 +727,7 @@ class CodeGenerator:
                 item_expr = f"*{item_expr}"
 
             out += self.generate_calculate_dynamic_size_of_member_internal(
-                into, item_expr, expr_type.subtype, as_type)
+                into, item_expr, expr_type.subtype)
 
             self.dedent()
 
@@ -819,9 +737,6 @@ class CodeGenerator:
 
             return out + self.line("}")
         elif expr_type.identity is TypeIdentity.STRUCT:
-            if expr.startswith("self."):
-                expr = f"&{expr}"
-
             return self.line(f"{into} += {expr}.size_of_body();")
         else:
             raise RuntimeError(
@@ -836,6 +751,16 @@ class CodeGenerator:
         out += self.line(f"let mut writer = bragi::Writer::new(writer);")
 
         if what == "head":
+            out += self.line(f"if self.size_of_head() > Self::HEAD_SIZE {{")
+
+            self.indent()
+
+            out += self.line(
+                f"return Err({invalid_data('Head is larger than the declared head size')});")
+
+            self.dedent()
+
+            out += self.line("}")
             out += self.line(f"writer.write_integer::<u32>(Self::MESSAGE_ID)?;")
             out += self.line(f"writer.write_integer::<u32>(self.size_of_tail() as u32)?;")
 
@@ -851,11 +776,11 @@ class CodeGenerator:
 
         if ptrs:
             out += self.line(
-                f"let mut dyn_offsets = [0{ptr_type}; {len(ptrs)}];")
+                f"let mut dyn_offsets = [0usize; {len(ptrs)}];")
 
             for i, member in enumerate(ptrs):
                 out += self.generate_determine_dyn_offset_for(
-                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i, ptr_type)
+                    fixed_size, ptrs[i - 1] if i > 0 else None, member, i)
 
         if members:
             fixed_enc = FixedEncoder(self)
@@ -1122,7 +1047,7 @@ class CodeGenerator:
 
         return out
 
-    def generate_determine_dyn_offset_for(self, skip, prev, member, n, as_type):
+    def generate_determine_dyn_offset_for(self, skip, prev, member, n):
         out = ""
         into = f"dyn_offsets[{n}]"
 
@@ -1136,7 +1061,7 @@ class CodeGenerator:
             member_name = escape_keyword(member_name)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                into, f"self.{member_name}", prev, as_type, False)
+                into, f"self.{member_name}", prev, False)
 
         return out
 
@@ -1165,7 +1090,7 @@ class CodeGenerator:
                 is_option = self.is_type_optional(member.type)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                "size", expr, member, False, is_option)
+                "size", expr, member, is_option)
 
         out += self.line("size")
 
@@ -1203,7 +1128,7 @@ class CodeGenerator:
                 is_option = self.is_type_optional(member.type)
 
             out += self.generate_calculate_dynamic_size_of_member(
-                "size", expr, member, False, is_option)
+                "size", expr, member, is_option)
 
         out += self.line("size")
 

@@ -409,7 +409,7 @@ class CodeGenerator:
 
         def emit_encode_in_fixed_internal(self, expr, expr_type, is_tags, ptr_type, array_depth):
             if is_tags or expr_type.dynamic:
-                out = self.parent.emit_stmt_checked(f'sr.write_integer<{ptr_type}>(wr, dyn_offs[{self.nth_dynamic}])')
+                out = self.parent.emit_stmt_checked(f'sr.write_integer<{ptr_type}>(wr, static_cast<{ptr_type}>(dyn_offs[{self.nth_dynamic}]))')
                 self.nth_dynamic += 1
                 return out
             elif expr_type.identity in {TypeIdentity.INTEGER, TypeIdentity.CONSTS}:
@@ -486,13 +486,16 @@ class CodeGenerator:
         out += f'{self.indent}(void)wr;\n'
         out += f'{self.indent}bragi::serializer sr; (void)sr;\n'
 
+        if what == 'head':
+            out += self.emit_stmt_checked('(size_of_head() <= head_size)')
+
         fixed_size = self.calculate_fixed_part_size(what, members, parent) if members else None
         ptrs = [i for i in members if self.is_dyn_pointer(i)] if members else None
         ptr_type = self.determine_pointer_type(what, parent.head.size if what == 'head' else None) if parent else None
 
         if ptrs:
             if len(ptrs) > 0:
-                out += f'{self.indent}{ptr_type} dyn_offs[{len(ptrs)}];\n'
+                out += f'{self.indent}size_t dyn_offs[{len(ptrs)}];\n'
 
         out += '\n'
 
@@ -612,7 +615,7 @@ class CodeGenerator:
 
                 out += f'{self.parent.indent}default:\n'
                 self.parent.enter_indent()
-                out += self.parent.emit_assert_that('!"Unknown tag!"')
+                out += f'{self.parent.indent}return false;\n'
                 self.parent.leave_indent()
 
                 self.parent.leave_indent()
@@ -651,6 +654,7 @@ class CodeGenerator:
 
                 if expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements:
                     target_size = expr_type.n_elements
+                    out += self.parent.emit_stmt_checked(f'(size <= {expr_type.n_elements})')
 
                 if not (expr_type.identity is TypeIdentity.ARRAY and expr_type.n_elements is not None):
                     if self.parent.check_needs_allocator(expr_type.subtype):

@@ -264,7 +264,7 @@ class CompilationUnit:
         for t in self.tokens:
             if type(t) is Enum:
                 if self.type_registry.is_known_type(t.name):
-                    self.report_message(t.type, 'error', f'name {t.name} is already in use.', '')
+                    self.report_message(t, 'error', f'name {t.name} is already in use.', '')
 
                 subtype = self.type_registry.get_type(t.type.name)
                 if not subtype:
@@ -284,7 +284,7 @@ class CompilationUnit:
                 t.type = self.type_registry.get_type(t.name)
             if type(t) is Struct:
                 if self.type_registry.is_known_type(t.name):
-                    self.report_message(t.type, 'error', f'name {t.name} is already in use.', '')
+                    self.report_message(t, 'error', f'name {t.name} is already in use.', '')
 
                 self.type_registry.register_type(
                     Type(t.name,
@@ -371,12 +371,16 @@ class CompilationUnit:
 
     def verify_message(self, msg):
         known_names = RESERVED_NAMES[:]
+        if msg.head is None:
+            self.report_message(msg, 'error',
+                    'message has no head section',
+                    'note: the message id and tail size are stored in the head')
         if msg.head is not None:
             total_size = 8
             for m in msg.head.members:
                 total_size += self.verify_member(m, msg.head, known_names)
             if total_size > msg.head.size:
-                self.report_message(s, 'error',
+                self.report_message(msg, 'error',
                         f'head section is {total_size - msg.head.size} bytes too short to fit all fixed-width members',
                         'note: the head has two hidden uint32 members for the message id and tail size')
         if msg.tail is not None:

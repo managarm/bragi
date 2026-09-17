@@ -149,7 +149,7 @@ impl<'a, R: Read + Seek> Reader<'a, R> {
         }
 
         let mut value: u64 = 0;
-        let shift = if n_bytes < 9 { 8 - (n_bytes % 8) } else { 0 };
+        let shift = if n_bytes < 9 { (8 - n_bytes) % 8 } else { 0 };
 
         for (i, byte) in bytes.iter().enumerate().skip(1) {
             value |= (*byte as u64) << ((i - 1) * 8);
@@ -445,12 +445,12 @@ macro_rules! generate_bitfield_enum {
             #[doc = "# Safety"]
             #[doc = "This function is unsafe because it allows creating a bitfield with arbitrary bits set."]
             #[doc = "The caller must ensure that the bits are valid for the given bitfield."]
-            pub const unsafe fn new(bits: u32) -> Self {
+            pub const unsafe fn new(bits: $underlying) -> Self {
                 Self { bits }
             }
 
             #[doc = concat!("Returns the bits of the [`", stringify!($name), "`].")]
-            pub const fn bits(&self) -> u32 {
+            pub const fn bits(&self) -> $underlying {
                 self.bits
             }
 

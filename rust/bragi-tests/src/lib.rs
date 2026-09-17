@@ -8,6 +8,8 @@ bragi::include_binding! {
     mod preamble_bragi = "preamble.rs",
     mod structs_bragi = "struct.rs",
     mod using_bragi = "using.rs",
+    mod varint_bragi = "varint.rs",
+    mod bitfield_bragi = "bitfield.rs",
 }
 
 #[cfg(test)]
@@ -140,10 +142,46 @@ mod arrays {
 }
 
 #[cfg(test)]
+mod array_bounds {
+    use super::arrays_bragi::*;
+
+    #[test]
+    fn oversized_fixed_array() -> std::io::Result<()> {
+        let msg = Test4::new(
+            vec![[1, 2, 3, 4, 5]],
+            [vec![], vec![], vec![], vec![], vec![]],
+        );
+        let mut buffer = bragi::head_to_bytes(&msg)?;
+
+        // Two head pointers follow the preamble, then arr1's outer length and
+        // the inner length of its first element.
+        assert_eq!(buffer[11], 2 * 5 + 1);
+        buffer[11] = 2 * 9 + 1;
+
+        let err = bragi::head_from_bytes::<Test4>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod basic {
     use super::basic_bragi::*;
 
     use bragi::Message;
+
+    #[test]
+    fn oversized_head() -> std::io::Result<()> {
+        let msg = Test::new(0, 0, "x".repeat(Test::HEAD_SIZE));
+
+        assert!(msg.size_of_head() > Test::HEAD_SIZE);
+
+        let err = bragi::head_to_bytes(&msg).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
 
     #[test]
     fn basic_test() -> std::io::Result<()> {
@@ -287,6 +325,79 @@ mod enums {
         assert_eq!(msg.bar(), Bar::E);
         assert_eq!(msg.foos(), &[Foo::D, Foo::A, Foo::F, Foo::B]);
         assert_eq!(msg.bars(), &[Bar::E, Bar::B, Bar::A, Bar::C]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn nested_test() -> std::io::Result<()> {
+        let nested = Nested::new(
+            Bar::E,
+            vec![Bar::A, Bar::C, Bar::F],
+            Baz::B,
+            vec![Baz::A, Baz::B],
+            Foo::C,
+            vec![Foo::A, Foo::F],
+        );
+        let msg = Test2::new(nested);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+
+        // The encoding is pinned so that a divergence between the C++ and Rust
+        // generators shows up as a test failure rather than on the wire.
+        assert_eq!(
+            buffer,
+            [
+                0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x03, 0x07, 0x01, 0x04, 0x04,
+                0x02, 0x40, 0x05, 0x03, 0x02, 0x40, 0x09, 0x05, 0x03, 0x0f
+            ]
+        );
+
+        let msg: Test2 = bragi::head_from_bytes(&buffer)?;
+        let nested = msg.nested();
+
+        assert_eq!(nested.bar(), Bar::E);
+        assert_eq!(nested.bars(), &[Bar::A, Bar::C, Bar::F]);
+        assert_eq!(nested.baz(), Baz::B);
+        assert_eq!(nested.bazs(), &[Baz::A, Baz::B]);
+        assert_eq!(nested.foo(), Foo::C);
+        assert_eq!(nested.foos(), &[Foo::A, Foo::F]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_enum_test() -> std::io::Result<()> {
+        let msg = Test::new(Foo::D, Bar::E, vec![], [Bar::A; 4]);
+        let mut buffer = bragi::head_to_bytes(&msg)?;
+
+        // `foo` is the first head member, so it starts right after the preamble.
+        buffer[8] = 99;
+
+        let err = bragi::head_from_bytes::<Test>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_enum_in_dynamic_part_test() -> std::io::Result<()> {
+        let nested = Nested::new(
+            Bar::E,
+            vec![Bar::A, Bar::C, Bar::F],
+            Baz::B,
+            vec![Baz::A, Baz::B],
+            Foo::C,
+            vec![Foo::A, Foo::F],
+        );
+        let mut buffer = bragi::head_to_bytes(&Test2::new(nested))?;
+
+        // `foo` is a varint inside the struct body; 63 is not a Foo value.
+        assert_eq!(buffer[20], (2 * (Foo::C as u8) + 1));
+        buffer[20] = 2 * 63 + 1;
+
+        let err = bragi::head_from_bytes::<Test2>(&buffer).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
 
         Ok(())
     }
@@ -450,6 +561,91 @@ mod structs {
         assert_eq!(foos[1].c(), 0xCAFEBABE);
         assert_eq!(foos[0].d(), &[1, 2, 3, 4]);
         assert_eq!(foos[1].d(), &[5, 6, 7, 8]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test4() -> std::io::Result<()> {
+        let foo = Foo::new(
+            "Hello".into(),
+            0xDEADBEEFCAFEBABE,
+            0xDEADBEEF,
+            vec![1, 2, 3, 4],
+        );
+        let msg = Test4::new(foo, "World".into());
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test4 = bragi::head_from_bytes(&buffer)?;
+
+        assert_eq!(msg.foo().a(), "Hello");
+        assert_eq!(msg.s(), "World");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test5() -> std::io::Result<()> {
+        let bar = Bar::new("Hello".into(), 1);
+        let msg = Test5::new(0xDEADBEEF, bar, "World".into());
+
+        let (head, tail) = bragi::head_tail_to_bytes(&msg)?;
+        let msg: Test5 = bragi::head_tail_from_bytes(&head, &tail)?;
+
+        assert_eq!(msg.x(), 0xDEADBEEF);
+        assert_eq!(msg.bar().a(), "Hello");
+        assert_eq!(msg.bar().b(), 1);
+        assert_eq!(msg.s(), "World");
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod varint {
+    use super::varint_bragi::*;
+
+    #[test]
+    fn test1() -> std::io::Result<()> {
+        let values = Values::new(1 << 48, 1 << 49, (1 << 56) - 1, 1 << 56, -1);
+        let msg = Test1::new(values);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test1 = bragi::head_from_bytes(&buffer)?;
+        let values = msg.values();
+
+        assert_eq!(values.seven_bytes(), 1 << 48);
+        assert_eq!(values.eight_bytes_low(), 1 << 49);
+        assert_eq!(values.eight_bytes_high(), (1 << 56) - 1);
+        assert_eq!(values.nine_bytes(), 1 << 56);
+        assert_eq!(values.negative(), -1);
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod bitfield {
+    use super::bitfield_bragi::*;
+
+    #[test]
+    fn test1() -> std::io::Result<()> {
+        let holder = Holder::new(
+            Flags8::A | Flags8::C,
+            Flags32::D | Flags32::E,
+            Flags64::F | Flags64::G,
+        );
+        let msg = Test1::new(Flags8::B, Flags32::E, Flags64::G, holder);
+
+        let buffer = bragi::head_to_bytes(&msg)?;
+        let msg: Test1 = bragi::head_from_bytes(&buffer)?;
+
+        assert_eq!(msg.f8(), Flags8::B);
+        assert_eq!(msg.f32(), Flags32::E);
+        assert_eq!(msg.f64(), Flags64::G);
+        assert_eq!(msg.holder().f8(), Flags8::A | Flags8::C);
+        assert_eq!(msg.holder().f32(), Flags32::D | Flags32::E);
+        assert_eq!(msg.holder().f64(), Flags64::F | Flags64::G);
 
         Ok(())
     }

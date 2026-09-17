@@ -37,7 +37,9 @@ tests = [
 	'preamble',
 	'struct',
 	'using',
-	'group'
+	'group',
+	'varint',
+	'bitfield'
 ]
 
 foreach t : tests

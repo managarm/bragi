@@ -1,0 +1,29 @@
+@format(bitfield) consts Flags8 uint8 {
+	A = 1,
+	B = 2,
+	C = 4
+}
+
+@format(bitfield) consts Flags32 uint32 {
+	D = 1,
+	E = 65536
+}
+
+@format(bitfield) consts Flags64 uint64 {
+	F = 1,
+	G = 4294967296
+}
+
+struct Holder {
+	Flags8 f8;
+	Flags32 f32;
+	Flags64 f64;
+}
+
+message Test1 1 {
+head(128):
+	Flags8 f8;
+	Flags32 f32;
+	Flags64 f64;
+	Holder holder;
+}
